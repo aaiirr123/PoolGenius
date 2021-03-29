@@ -1,3 +1,4 @@
+from typing import Callable, List, Tuple
 import pygame.display
 import pygame.draw
 import pygame.event
@@ -9,6 +10,43 @@ from Box2D.Box2D import *
 
 import random
 
+class ScreenInfo:
+    def __init__(self, screen:Surface, screen_width:int, screen_height:int, offset_x:int, offset_y:int, ppm:float):
+        self.screen = screen
+        self.screen_width = screen_width
+        self.screen_height = screen_height
+        self.offset_x = offset_x
+        self.offset_y = offset_y
+        self.ppm = ppm
+
+class Drawable:
+    GREEN = 0, 255, 0
+    BLACK = 0, 0, 0
+    RED = 255, 0, 0
+
+    def __init__(self, body:b2Body, color:Tuple[int, int, int], draw:Callable[[b2Shape, b2Body, Tuple[int, int, int], ScreenInfo], None]):
+        self.body = body
+        self.color = color
+        self.draw_func = draw
+
+    def draw(self, screen:ScreenInfo):
+        for fixture in self.body.fixtures:
+            self.draw_func(fixture.shape, self.body, self.color, screen)
+
+    # https://github.com/openai/box2d-py/blob/master/examples/simple/simple_02.py
+    # for the draw functions
+    @staticmethod
+    def draw_poly(polygon:b2PolygonShape, body:b2Body, color:Tuple[int, int, int], screen:ScreenInfo):
+        vertices = [(body.transform * v) * screen.ppm for v in polygon.vertices]
+        vertices = [(x + screen.offset_x, screen.screen_height - y - screen.offset_y) for x, y in vertices]
+        pygame.draw.polygon(screen.screen, color, vertices)
+
+    @staticmethod
+    def draw_circle(circle:b2CircleShape, body:b2Body, color:Tuple[int, int, int], screen:ScreenInfo):
+        x, y = body.transform * circle.pos * screen.ppm
+        position = (x + screen.offset_x, screen.screen_height - y - screen.offset_y)
+        pygame.draw.circle(screen.screen, color, [int(i) for i in position], int(circle.radius * screen.ppm))
+
 class Pool:
     TICK_RATE = 60
     TIME_STEP = 1.0 / TICK_RATE
@@ -17,20 +55,13 @@ class Pool:
     TABLE_WIDTH = 9.0
     TABLE_HEIGHT = 4.5
     TABLE_RATIO = TABLE_WIDTH / TABLE_HEIGHT
-    GREEN = 0, 255, 0
-    BLACK = 0, 0, 0
-    RED = 255, 0, 0
 
     def __init__(self):
-        self.screen_width = 1280
-        self.screen_height = 640
-        self.offset_x = 0 # offset in pixels used for resizing
-        self.offset_y = 0 # offset in pixels used for resizing
-        self.ppm = 0 # pixels per meter
-
         self.world = b2World(gravity=(0, 0), doSleep=True)
-        self.balls = []
+        self.drawables:List[Drawable] = []
 
+        # constants taken from here:
+        # https://github.com/agarwl/eight-ball-pool/blob/master/src/dominos.cpp
         ball_fd = b2FixtureDef(shape=b2CircleShape(radius=2.25/12))
         ball_fd.density = 1.0
         ball_fd.friction = 0.2
@@ -40,11 +71,12 @@ class Pool:
             ball:b2Body = self.world.CreateDynamicBody(position=(random.randint(1, 8), random.randint(1, 4)), fixtures=ball_fd)
             ball.linearDamping = 0.6
             ball.angularDamping = 0.6
-            ball.ApplyForce((random.randint(-100, 100), random.randint(-300, 300)), ball.worldCenter, True)
-            self.balls.append(ball)
+            ball.ApplyForce((random.randint(-300, 300), random.randint(-300, 300)), ball.worldCenter, True)
+            ball_drawable = Drawable(ball, Drawable.RED, Drawable.draw_circle)
+            self.drawables.append(ball_drawable)
 
         # This is the pool table
-        self.table:b2Body = self.world.CreateStaticBody(
+        table_body:b2Body = self.world.CreateStaticBody(
             position=(0, 0),
             shapes=b2ChainShape(vertices_chain=[
                 (0, 0),
@@ -54,16 +86,13 @@ class Pool:
                 (0, 0)
             ])
         )
-
-        self.type_to_draw = {
-            b2PolygonShape: self.draw_poly,
-            b2CircleShape: self.draw_circle,
-            b2ChainShape: self.draw_poly
-        }
+        self.table = Drawable(table_body, Drawable.GREEN, Drawable.draw_poly)
 
         pygame.init()
 
-        self.screen:Surface = pygame.display.set_mode((self.screen_width, self.screen_height), RESIZABLE)
+        width = 1280
+        height = 640
+        self.screen = ScreenInfo(pygame.display.set_mode((width, height), RESIZABLE), width, height, 0, 0, 0)
         pygame.display.set_caption("Billiards")
         self.clock = pygame.time.Clock()
 
@@ -71,34 +100,22 @@ class Pool:
 
     def update_screen(self):
         # update ppm
-        if self.screen_width / self.screen_height <= Pool.TABLE_RATIO:
-            self.ppm = self.screen_width / Pool.TABLE_WIDTH
+        if self.screen.screen_width / self.screen.screen_height <= Pool.TABLE_RATIO:
+            self.screen.ppm = self.screen.screen_width / Pool.TABLE_WIDTH
         else:
-            self.ppm = self.screen_height / Pool.TABLE_HEIGHT
+            self.screen.ppm = self.screen.screen_height / Pool.TABLE_HEIGHT
 
         # update offsets
-        ratio = self.screen_width / self.screen_height
+        ratio = self.screen.screen_width / self.screen.screen_height
         if ratio == Pool.TABLE_RATIO:
-            self.offset_x = 0
-            self.offset_y = 0
+            self.screen.offset_x = 0
+            self.screen.offset_y = 0
         elif ratio > Pool.TABLE_RATIO:
-            self.offset_x = int(self.screen_width - (Pool.TABLE_RATIO * self.screen_height)) // 2
-            self.offset_y = 0
+            self.screen.offset_x = int(self.screen.screen_width - (Pool.TABLE_RATIO * self.screen.screen_height)) // 2
+            self.screen.offset_y = 0
         else:
-            self.offset_x = 0
-            self.offset_y = int((self.screen_height - (self.screen_width / Pool.TABLE_RATIO))) // 2
-
-    # https://github.com/openai/box2d-py/blob/master/examples/simple/simple_02.py
-    # for the draw functions
-    def draw_poly(self, polygon:b2PolygonShape, body:b2Body):
-        vertices = [(body.transform * v) * self.ppm for v in polygon.vertices]
-        vertices = [(x + self.offset_x, self.screen_height - y - self.offset_y) for x, y in vertices]
-        pygame.draw.polygon(self.screen, Pool.GREEN, vertices)
-
-    def draw_circle(self, circle:b2CircleShape, body:b2Body):
-        x, y = body.transform * circle.pos * self.ppm
-        position = (x + self.offset_x, self.screen_height - y - self.offset_y)
-        pygame.draw.circle(self.screen, Pool.RED, [int(i) for i in position], int(circle.radius * self.ppm))
+            self.screen.offset_x = 0
+            self.screen.offset_y = int((self.screen.screen_height - (self.screen.screen_width / Pool.TABLE_RATIO))) // 2
 
     def run(self):
         # game loop
@@ -110,20 +127,16 @@ class Pool:
                     # The user closed the window or pressed escape
                     running = False
                 if event.type == VIDEORESIZE:
-                    self.screen_height = event.h
-                    self.screen_width = event.w
+                    self.screen.screen_height = event.h
+                    self.screen.screen_width = event.w
                     self.update_screen()
-                    self.screen = pygame.display.set_mode((self.screen_width, self.screen_height), RESIZABLE)
+                    self.screen.screen = pygame.display.set_mode((self.screen.screen_width, self.screen.screen_height), RESIZABLE)
 
-            self.screen.fill((0, 0, 0, 0))
-            self.draw_poly(self.table.fixtures[0].shape, self.table)
-            
-            # Draw the world
-            for body in self.world.bodies:
-                if body == self.table:
-                    continue
-                for fixture in body.fixtures:
-                    self.type_to_draw[type(fixture.shape)](fixture.shape, body)
+            self.screen.screen.fill((0, 0, 0, 0))
+            self.table.draw(self.screen)
+
+            for drawable in self.drawables:
+                drawable.draw(self.screen)
 
             pygame.display.update()
 
