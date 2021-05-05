@@ -1,4 +1,4 @@
-from typing import Callable, List, Tuple
+from typing import Callable, Dict, List, Tuple
 import pygame.display
 import pygame.draw
 import pygame.event
@@ -9,6 +9,7 @@ from Box2D.Box2D import *
 import math
 import time
 import random
+from collections import deque
 
 class Point:
     def __init__(self, x:int, y:int):
@@ -98,13 +99,31 @@ class Ball:
         self.color = color
         self.force = force
 
-class PoolWorld:
-    
+class PoolWorld(b2ContactListener):
+
+    BALL = 1
+    POCKET = 2
+    WALL = 3
+
+    def BeginContact(self, contact):
+        body1:b2Body = contact.fixtureA.body
+        body2:b2Body = contact.fixtureB.body
+        type1 = body1.userData["type"]
+        type2 = body2.userData["type"]
+        if type1 == PoolWorld.BALL and type2 == PoolWorld.POCKET:
+            body1.userData["pocketed"] = True
+        elif type2 == PoolWorld.BALL and type1 == PoolWorld.POCKET:
+            body2.userData["pocketed"] = True
+
     def __init__(self, balls:List[Ball]):
+        super().__init__()
         self.world = b2World(gravity=(0, 0), doSleep=True)
-        self.balls:List[b2Body] = []
+        self.balls:deque[b2Body] = deque()
         self.pockets:List[Point] = []
         self.drawables:List[Drawable] = []
+
+        self.world.autoClearForces = True
+        self.world.contactListener = self
 
         # constants taken from here:
         # https://github.com/agarwl/eight-ball-pool/blob/master/src/dominos.cpp
@@ -113,15 +132,17 @@ class PoolWorld:
         ball_fd.friction = 0.2
         ball_fd.restitution = 0.85
 
+        i = 0
         for b in balls:
             ball:b2Body = self.world.CreateDynamicBody(position=b.position, fixtures=ball_fd)
             ball.bullet = True
             ball.linearDamping = 0.6
             ball.angularDamping = 0.6
             ball.ApplyForce(b.force, ball.worldCenter, True)
-            ball_drawable = Drawable(ball, b.color, Drawable.draw_circle)
-            self.drawables.append(ball_drawable)
+            ball.userData = {"type": PoolWorld.BALL, "num": i, "color": b.color, "pocketed": False}
             self.balls.append(ball)
+            self.drawables.append(Drawable(ball, b.color, Drawable.draw_circle))
+            i += 1
 
         for i in range(6):
             n = i % 3
@@ -141,6 +162,19 @@ class PoolWorld:
         bottom_left = self.pockets[3]
         bottom_middle = self.pockets[4]
         bottom_right = self.pockets[5]
+
+        self.pocket_bodies:List[b2Body] = []
+        pocket_fd = b2FixtureDef(
+            shape=b2CircleShape(radius=Pool.POCKET_RADIUS - Pool.BALL_RADIUS)
+        )
+        pocket_fd.isSensor = True
+        for pocket in self.pockets:
+            body:b2Body = self.world.CreateStaticBody(
+                position=pocket.to_tuple(),
+                fixtures=pocket_fd
+            )
+            body.userData = {"type": PoolWorld.POCKET}
+            self.pocket_bodies.append(body)
         
         self.create_boundary_wall(top_left, top_middle, True)
         self.create_boundary_wall(top_middle, top_right, True)
@@ -148,6 +182,8 @@ class PoolWorld:
         self.create_boundary_wall(Point(top_left.x - Pool.POCKET_RADIUS, top_left.y), Point(bottom_left.x - Pool.POCKET_RADIUS, bottom_left.y), False)
         self.create_boundary_wall(Point(bottom_left.x, bottom_left.y + Pool.POCKET_RADIUS), Point(bottom_middle.x, bottom_middle.y + Pool.POCKET_RADIUS), True)
         self.create_boundary_wall(Point(bottom_middle.x, bottom_middle.y + Pool.POCKET_RADIUS), Point(bottom_right.x, bottom_right.y + Pool.POCKET_RADIUS), True)
+
+        self.duration = 0
 
     def create_boundary_wall(self, pocket1:Point, pocket2:Point, horizontal:bool):
         vertices = []
@@ -164,42 +200,38 @@ class PoolWorld:
             vertices.append((pocket1.x + thickness, pocket2.y - diff))
             vertices.append((pocket1.x + thickness, pocket1.y + diff))
         vertices.append(vertices[0])
-        body = self.world.CreateStaticBody(
-            shapes=b2ChainShape(vertices_chain=vertices)
-        )
+        fixture = b2FixtureDef(shape=b2ChainShape(vertices_chain=vertices))
+        body:b2Body = self.world.CreateStaticBody(fixtures=fixture)
+        body.userData = {"type": PoolWorld.WALL}
         self.drawables.append(Drawable(body, Drawable.BROWN, Drawable.draw_rect, outline_color=(25, 14, 16)))
 
     def update_physics(self, time_step, vel_iters, pos_iters):
         # Make Box2D simulate the physics of our world for one step.
+        t0 = time.time()
         self.world.Step(time_step, vel_iters, pos_iters)
-        
+        t1 = time.time()
+        self.duration += t1 - t0
+
+        ret = False
+        to_remove = []
         for ball in self.balls:
-            ball_x = ball.position[0]
-            ball_y = ball.position[1]
-            for pt in self.pockets:
-                x2 = ball_x - pt.x
-                x2 = x2 * x2
-                y2 = ball_y - pt.y
-                y2 = y2 * y2
-                if x2 + y2 <= Pool.POCKET_RADIUS_SQUARED:
-                    self.balls.remove(ball)
-                    self.world.DestroyBody(ball)
-                    break
+            if ball.userData["pocketed"]:
+                to_remove.append(ball)
+            elif not ret and (ball.linearVelocity[0] > 0.01 or ball.linearVelocity[1] > 0.01):
+                ret = True
+        for ball in to_remove:
+            self.balls.remove(ball)
+            self.world.DestroyBody(ball)
+        return ret
 
     def simulate_until_still(self, time_step, vel_iters, pos_iters):
         t0 = time.time()
         self.update_physics(time_step, vel_iters, pos_iters)
         self.world.ClearForces()
-        while self.are_balls_moving():
-            self.update_physics(time_step, vel_iters, pos_iters)
+        while self.update_physics(time_step, vel_iters, pos_iters):
+            pass
         t1 = time.time()
-        print(f"time elapsed: {t1 - t0} s")
-        
-    def are_balls_moving(self):
-        for ball in self.balls:
-            if ball.linearVelocity[0] > 0.01 or ball.linearVelocity[1] > 0.01:
-                return True
-        return False
+        print(f"step duration: {self.duration} s, time elapsed: {t1 - t0} s")
 
 class Pool:
     TICK_RATE = 60
@@ -221,7 +253,10 @@ class Pool:
         for i in range(8):
             balls.append(Ball((random.randint(1, 8), random.randint(1, 4)), colors[i], (random.randint(-300, 300), random.randint(-300, 300))))
 
+        t0 = time.time()
         self.pool = PoolWorld(balls)
+        t1 = time.time()
+        print(f"create world: {t1 - t0} s")
 
         pygame.init()
 
@@ -271,8 +306,8 @@ class Pool:
         self.clock.tick(Pool.TICK_RATE)
 
     def run(self):
-        # self.pool.simulate_until_still()
-        self.pool.update_physics(Pool.TIME_STEP, Pool.VEL_ITERS, Pool.POS_ITERS)
+        self.pool.simulate_until_still(Pool.TIME_STEP, Pool.VEL_ITERS, Pool.POS_ITERS)
+        #self.pool.update_physics(Pool.TIME_STEP, Pool.VEL_ITERS, Pool.POS_ITERS)
         # game loop
         running = True
         while running:
@@ -288,7 +323,7 @@ class Pool:
                     self.screen.screen = pygame.display.set_mode((self.screen.screen_width, self.screen.screen_height), RESIZABLE)
             
             self.update_graphics()
-            self.pool.update_physics(Pool.TIME_STEP, Pool.VEL_ITERS, Pool.POS_ITERS)
+            #self.pool.update_physics(Pool.TIME_STEP, Pool.VEL_ITERS, Pool.POS_ITERS)
 
         pygame.quit()
         print('Done!')
