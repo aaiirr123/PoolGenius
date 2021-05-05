@@ -92,23 +92,19 @@ class Drawable:
         else:
             pygame.draw.circle(screen.screen, color, position, circle.radius * screen.ppm)
 
-class Pool:
-    TICK_RATE = 60
-    TIME_STEP = 1.0 / TICK_RATE
-    VEL_ITERS = 6
-    POS_ITERS = 2
-    TABLE_WIDTH = 9.0
-    TABLE_HEIGHT = 4.5
-    TABLE_RATIO = TABLE_WIDTH / TABLE_HEIGHT
-    BALL_RADIUS = 2 / 12
-    POCKET_RADIUS = 3 / 12
-    POCKET_RADIUS_SQUARED = POCKET_RADIUS * POCKET_RADIUS
+class Ball:
+    def __init__(self, position, color, force=(0,0)):
+        self.position = position
+        self.color = color
+        self.force = force
 
-    def __init__(self):
+class PoolWorld:
+    
+    def __init__(self, balls:List[Ball]):
         self.world = b2World(gravity=(0, 0), doSleep=True)
-        self.drawables:List[Drawable] = []
         self.balls:List[b2Body] = []
         self.pockets:List[Point] = []
+        self.drawables:List[Drawable] = []
 
         # constants taken from here:
         # https://github.com/agarwl/eight-ball-pool/blob/master/src/dominos.cpp
@@ -117,16 +113,13 @@ class Pool:
         ball_fd.friction = 0.2
         ball_fd.restitution = 0.85
 
-        colors = [Drawable.YELLOW, Drawable.BLUE, Drawable.RED, Drawable.PURPLE, Drawable.ORANGE, Drawable.GREEN, Drawable.BURGUNDY, Drawable.BLACK]
-        colors = random.sample(colors, 8)
-
-        for i in range(8):
-            ball:b2Body = self.world.CreateDynamicBody(position=(random.randint(1, 8), random.randint(1, 4)), fixtures=ball_fd)
+        for b in balls:
+            ball:b2Body = self.world.CreateDynamicBody(position=b.position, fixtures=ball_fd)
             ball.bullet = True
             ball.linearDamping = 0.6
             ball.angularDamping = 0.6
-            ball.ApplyForce((random.randint(-300, 300), random.randint(-300, 300)), ball.worldCenter, True)
-            ball_drawable = Drawable(ball, colors[i], Drawable.draw_circle)
+            ball.ApplyForce(b.force, ball.worldCenter, True)
+            ball_drawable = Drawable(ball, b.color, Drawable.draw_circle)
             self.drawables.append(ball_drawable)
             self.balls.append(ball)
 
@@ -156,16 +149,6 @@ class Pool:
         self.create_boundary_wall(Point(bottom_left.x, bottom_left.y + Pool.POCKET_RADIUS), Point(bottom_middle.x, bottom_middle.y + Pool.POCKET_RADIUS), True)
         self.create_boundary_wall(Point(bottom_middle.x, bottom_middle.y + Pool.POCKET_RADIUS), Point(bottom_right.x, bottom_right.y + Pool.POCKET_RADIUS), True)
 
-        pygame.init()
-
-        width = 1280
-        height = width // 2
-        self.screen = ScreenInfo(pygame.display.set_mode((1280, 720)), width, height, 0, 0, 0)
-        pygame.display.set_caption("Billiards")
-        self.clock = pygame.time.Clock()
-
-        self.update_screen()
-
     def create_boundary_wall(self, pocket1:Point, pocket2:Point, horizontal:bool):
         vertices = []
         diff = Pool.POCKET_RADIUS + 0.05
@@ -186,6 +169,70 @@ class Pool:
         )
         self.drawables.append(Drawable(body, Drawable.BROWN, Drawable.draw_rect, outline_color=(25, 14, 16)))
 
+    def update_physics(self, time_step, vel_iters, pos_iters):
+        # Make Box2D simulate the physics of our world for one step.
+        self.world.Step(time_step, vel_iters, pos_iters)
+        
+        for ball in self.balls:
+            ball_x = ball.position[0]
+            ball_y = ball.position[1]
+            for pt in self.pockets:
+                x2 = ball_x - pt.x
+                x2 = x2 * x2
+                y2 = ball_y - pt.y
+                y2 = y2 * y2
+                if x2 + y2 <= Pool.POCKET_RADIUS_SQUARED:
+                    self.balls.remove(ball)
+                    self.world.DestroyBody(ball)
+                    break
+
+    def simulate_until_still(self, time_step, vel_iters, pos_iters):
+        t0 = time.time()
+        self.update_physics(time_step, vel_iters, pos_iters)
+        self.world.ClearForces()
+        while self.are_balls_moving():
+            self.update_physics(time_step, vel_iters, pos_iters)
+        t1 = time.time()
+        print(f"time elapsed: {t1 - t0} s")
+        
+    def are_balls_moving(self):
+        for ball in self.balls:
+            if ball.linearVelocity[0] > 0.01 or ball.linearVelocity[1] > 0.01:
+                return True
+        return False
+
+class Pool:
+    TICK_RATE = 60
+    TIME_STEP = 1.0 / TICK_RATE
+    VEL_ITERS = 6
+    POS_ITERS = 2
+    TABLE_WIDTH = 9.0
+    TABLE_HEIGHT = 4.5
+    TABLE_RATIO = TABLE_WIDTH / TABLE_HEIGHT
+    BALL_RADIUS = 2 / 12
+    POCKET_RADIUS = 3 / 12
+    POCKET_RADIUS_SQUARED = POCKET_RADIUS * POCKET_RADIUS
+
+    def __init__(self):
+        colors = [Drawable.YELLOW, Drawable.BLUE, Drawable.RED, Drawable.PURPLE, Drawable.ORANGE, Drawable.GREEN, Drawable.BURGUNDY, Drawable.BLACK]
+        colors = random.sample(colors, 8)
+
+        balls = []
+        for i in range(8):
+            balls.append(Ball((random.randint(1, 8), random.randint(1, 4)), colors[i], (random.randint(-300, 300), random.randint(-300, 300))))
+
+        self.pool = PoolWorld(balls)
+
+        pygame.init()
+
+        width = 1280
+        height = width // 2
+        self.screen = ScreenInfo(pygame.display.set_mode((1280, 720)), width, height, 0, 0, 0)
+        pygame.display.set_caption("Billiards")
+        self.clock = pygame.time.Clock()
+
+        self.update_screen()
+
     def update_screen(self):
         # update ppm
         if self.screen.screen_width / self.screen.screen_height <= Pool.TABLE_RATIO:
@@ -205,48 +252,16 @@ class Pool:
             self.screen.offset_x = 0
             self.screen.offset_y = int((self.screen.screen_height - (self.screen.screen_width / Pool.TABLE_RATIO))) // 2
 
-    def update_physics(self):
-        # Make Box2D simulate the physics of our world for one step.
-        self.world.Step(Pool.TIME_STEP, Pool.VEL_ITERS, Pool.POS_ITERS)
-        
-        for ball in self.balls:
-            ball_x = ball.position[0]
-            ball_y = ball.position[1]
-            for pt in self.pockets:
-                x2 = ball_x - pt.x
-                x2 = x2 * x2
-                y2 = ball_y - pt.y
-                y2 = y2 * y2
-                if x2 + y2 <= Pool.POCKET_RADIUS_SQUARED:
-                    self.balls.remove(ball)
-                    self.world.DestroyBody(ball)
-                    break
-
-    def simulate_until_still(self):
-        t0 = time.time()
-        self.update_physics()
-        self.world.ClearForces()
-        while self.are_balls_moving():
-            self.update_physics()
-        t1 = time.time()
-        print(f"time elapsed: {t1 - t0} s")
-        
-    def are_balls_moving(self):
-        for ball in self.balls:
-            if ball.linearVelocity[0] > 0.01 or ball.linearVelocity[1] > 0.01:
-                return True
-        return False
-
     def update_graphics(self):
         self.screen.screen.fill(Drawable.BILLIARD_GREEN)
 
-        for pt in self.pockets:
+        for pt in self.pool.pockets:
             x = pt.x * self.screen.ppm
             y = pt.y * self.screen.ppm
             position = (x + self.screen.offset_x, self.screen.screen_height - y - self.screen.offset_y)
             pygame.draw.circle(self.screen.screen, Drawable.BLACK, position, Pool.POCKET_RADIUS * self.screen.ppm)
 
-        for drawable in self.drawables:
+        for drawable in self.pool.drawables:
             drawable.draw(self.screen)
 
         pygame.display.update()
@@ -256,9 +271,8 @@ class Pool:
         self.clock.tick(Pool.TICK_RATE)
 
     def run(self):
-        self.simulate_until_still()
-        # self.update_physics()
-        # self.world.ClearForces()
+        # self.pool.simulate_until_still()
+        self.pool.update_physics(Pool.TIME_STEP, Pool.VEL_ITERS, Pool.POS_ITERS)
         # game loop
         running = True
         while running:
@@ -274,7 +288,7 @@ class Pool:
                     self.screen.screen = pygame.display.set_mode((self.screen.screen_width, self.screen.screen_height), RESIZABLE)
             
             self.update_graphics()
-            # self.update_physics()
+            self.pool.update_physics(Pool.TIME_STEP, Pool.VEL_ITERS, Pool.POS_ITERS)
 
         pygame.quit()
         print('Done!')
