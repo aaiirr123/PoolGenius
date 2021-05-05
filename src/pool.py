@@ -5,12 +5,26 @@ import pygame.event
 from pygame.surface import Surface
 import pygame.time
 from pygame.locals import (QUIT, KEYDOWN, K_ESCAPE, RESIZABLE, VIDEORESIZE)
-import Box2D
 from Box2D.Box2D import *
 import math
 import time
-
 import random
+
+class Point:
+    def __init__(self, x:int, y:int):
+        self.x = x
+        self.y = y
+
+    def __getitem__(self, n):
+        if n == 0:
+            return self.x
+        elif n == 1:
+            return self.y
+        else:
+            raise IndexError
+
+    def to_tuple(self):
+        return (self.x, self.y)
 
 class ScreenInfo:
     def __init__(self, screen:Surface, screen_width:int, screen_height:int, offset_x:int, offset_y:int, ppm:float):
@@ -22,33 +36,61 @@ class ScreenInfo:
         self.ppm = ppm
 
 class Drawable:
-    GREEN = 0, 255, 0
+    BILLIARD_GREEN = 39, 107, 64
     BLACK = 0, 0, 0
     RED = 255, 0, 0
+    WHITE = 255, 255, 255
+    BROWN = 50, 28, 32
+    YELLOW = 255, 255, 0
+    BLUE = 0, 0, 255
+    PURPLE = 128, 0, 128
+    GREEN = 0, 128, 0
+    BURGUNDY = 128, 0, 32
+    ORANGE = 255, 165, 0
 
-    def __init__(self, body:b2Body, color:Tuple[int, int, int], draw:Callable[[b2Shape, b2Body, Tuple[int, int, int], ScreenInfo], None]):
+    def __init__(self, body:b2Body, color:Tuple[int, int, int], draw:Callable[[b2Shape, b2Body, Tuple[int, int, int], ScreenInfo, bool, Tuple[int, int, int]], None], outline:bool=True, outline_color:Tuple[int, int, int]=WHITE):
         self.body = body
         self.color = color
         self.draw_func = draw
+        self.outline = outline
+        self.outline_color = outline_color
 
     def draw(self, screen:ScreenInfo):
         if self.body.active:
             for fixture in self.body.fixtures:
-                self.draw_func(fixture.shape, self.body, self.color, screen)
+                self.draw_func(fixture.shape, self.body, self.color, screen, self.outline, self.outline_color)
 
     # https://github.com/openai/box2d-py/blob/master/examples/simple/simple_02.py
     # for the draw functions
     @staticmethod
-    def draw_poly(polygon:b2PolygonShape, body:b2Body, color:Tuple[int, int, int], screen:ScreenInfo):
-        vertices = [(body.transform * v) * screen.ppm for v in polygon.vertices]
-        vertices = [(x + screen.offset_x, screen.screen_height - y - screen.offset_y) for x, y in vertices]
-        pygame.draw.polygon(screen.screen, color, vertices)
+    def draw_rect(polygon:b2PolygonShape, body:b2Body, color:Tuple[int, int, int], screen:ScreenInfo, outline:bool, outline_color:Tuple[int, int, int]):
+        vertices = [(body.transform * v) * screen.ppm for v in polygon.vertices[:4]]
+        vertices = [[x + screen.offset_x, screen.screen_height - y - screen.offset_y] for x, y in vertices]
+        if outline:
+            vertices.sort(key=lambda x : (x[0], x[1]))
+            vertices = [vertices[0], vertices[2], vertices[3], vertices[1]]
+            pygame.draw.polygon(screen.screen, outline_color, vertices)
+            vertices[0][0] += 2
+            vertices[0][1] += 2
+            vertices[1][0] -= 2
+            vertices[1][1] += 2
+            vertices[2][0] -= 2
+            vertices[2][1] -= 2
+            vertices[3][0] += 2
+            vertices[3][1] -= 2
+            pygame.draw.polygon(screen.screen, color, vertices)
+        else:
+            pygame.draw.polygon(screen.screen, color, vertices)
 
     @staticmethod
-    def draw_circle(circle:b2CircleShape, body:b2Body, color:Tuple[int, int, int], screen:ScreenInfo):
+    def draw_circle(circle:b2CircleShape, body:b2Body, color:Tuple[int, int, int], screen:ScreenInfo, outline:bool, outline_color:Tuple[int, int, int]):
         x, y = body.transform * circle.pos * screen.ppm
         position = (x + screen.offset_x, screen.screen_height - y - screen.offset_y)
-        pygame.draw.circle(screen.screen, color, position, circle.radius * screen.ppm)
+        if outline:
+            pygame.draw.circle(screen.screen, outline_color, position, circle.radius * screen.ppm)
+            pygame.draw.circle(screen.screen, color, position, circle.radius * screen.ppm - 2)
+        else:
+            pygame.draw.circle(screen.screen, color, position, circle.radius * screen.ppm)
 
 class Pool:
     TICK_RATE = 60
@@ -58,30 +100,33 @@ class Pool:
     TABLE_WIDTH = 9.0
     TABLE_HEIGHT = 4.5
     TABLE_RATIO = TABLE_WIDTH / TABLE_HEIGHT
-    BALL_RADIUS = 2.25 / 12
-    POCKET_RADIUS = 2.5 / 12
+    BALL_RADIUS = 2 / 12
+    POCKET_RADIUS = 3 / 12
     POCKET_RADIUS_SQUARED = POCKET_RADIUS * POCKET_RADIUS
 
     def __init__(self):
         self.world = b2World(gravity=(0, 0), doSleep=True)
         self.drawables:List[Drawable] = []
         self.balls:List[b2Body] = []
-        self.pockets:List[Tuple[int, int]] = []
+        self.pockets:List[Point] = []
 
         # constants taken from here:
         # https://github.com/agarwl/eight-ball-pool/blob/master/src/dominos.cpp
         ball_fd = b2FixtureDef(shape=b2CircleShape(radius=Pool.BALL_RADIUS))
         ball_fd.density = 1.0
         ball_fd.friction = 0.2
-        ball_fd.restitution = 0.9
+        ball_fd.restitution = 0.85
 
-        for _ in range(10):
+        colors = [Drawable.YELLOW, Drawable.BLUE, Drawable.RED, Drawable.PURPLE, Drawable.ORANGE, Drawable.GREEN, Drawable.BURGUNDY, Drawable.BLACK]
+        colors = random.sample(colors, 8)
+
+        for i in range(8):
             ball:b2Body = self.world.CreateDynamicBody(position=(random.randint(1, 8), random.randint(1, 4)), fixtures=ball_fd)
             ball.bullet = True
             ball.linearDamping = 0.6
             ball.angularDamping = 0.6
             ball.ApplyForce((random.randint(-300, 300), random.randint(-300, 300)), ball.worldCenter, True)
-            ball_drawable = Drawable(ball, Drawable.RED, Drawable.draw_circle)
+            ball_drawable = Drawable(ball, colors[i], Drawable.draw_circle)
             self.drawables.append(ball_drawable)
             self.balls.append(ball)
 
@@ -94,30 +139,52 @@ class Pool:
             else:
                 x = Pool.TABLE_WIDTH - Pool.POCKET_RADIUS
             y = Pool.POCKET_RADIUS if i <= 2 else Pool.TABLE_HEIGHT - Pool.POCKET_RADIUS
-            self.pockets.append((x, y))
+            self.pockets.append(Point(x, y))
 
-        # This is the pool table
-        table_body:b2Body = self.world.CreateStaticBody(
-            position=(0, 0),
-            shapes=b2ChainShape(vertices_chain=[
-                (0, 0),
-                (Pool.TABLE_WIDTH, 0),
-                (Pool.TABLE_WIDTH, Pool.TABLE_HEIGHT),
-                (0, Pool.TABLE_HEIGHT),
-                (0, 0)
-            ])
-        )
-        self.table = Drawable(table_body, Drawable.GREEN, Drawable.draw_poly)
+        # Create the edges of the pool table
+        top_left = self.pockets[0]
+        top_middle = self.pockets[1]
+        top_right = self.pockets[2]
+        bottom_left = self.pockets[3]
+        bottom_middle = self.pockets[4]
+        bottom_right = self.pockets[5]
+        
+        self.create_boundary_wall(top_left, top_middle, True)
+        self.create_boundary_wall(top_middle, top_right, True)
+        self.create_boundary_wall(top_right, bottom_right, False)
+        self.create_boundary_wall(Point(top_left.x - Pool.POCKET_RADIUS, top_left.y), Point(bottom_left.x - Pool.POCKET_RADIUS, bottom_left.y), False)
+        self.create_boundary_wall(Point(bottom_left.x, bottom_left.y + Pool.POCKET_RADIUS), Point(bottom_middle.x, bottom_middle.y + Pool.POCKET_RADIUS), True)
+        self.create_boundary_wall(Point(bottom_middle.x, bottom_middle.y + Pool.POCKET_RADIUS), Point(bottom_right.x, bottom_right.y + Pool.POCKET_RADIUS), True)
 
         pygame.init()
 
         width = 1280
-        height = 640
-        self.screen = ScreenInfo(pygame.display.set_mode((width, height), RESIZABLE), width, height, 0, 0, 0)
+        height = width // 2
+        self.screen = ScreenInfo(pygame.display.set_mode((1280, 720)), width, height, 0, 0, 0)
         pygame.display.set_caption("Billiards")
         self.clock = pygame.time.Clock()
 
         self.update_screen()
+
+    def create_boundary_wall(self, pocket1:Point, pocket2:Point, horizontal:bool):
+        vertices = []
+        diff = Pool.POCKET_RADIUS + 0.05
+        thickness = Pool.POCKET_RADIUS
+        if horizontal:
+            vertices.append((pocket1.x + diff, pocket1.y))
+            vertices.append((pocket2.x - diff, pocket1.y))
+            vertices.append((pocket2.x - diff, pocket1.y - thickness))
+            vertices.append((pocket1.x + diff, pocket1.y - thickness))
+        else:
+            vertices.append((pocket1.x, pocket1.y + diff))
+            vertices.append((pocket1.x, pocket2.y - diff))
+            vertices.append((pocket1.x + thickness, pocket2.y - diff))
+            vertices.append((pocket1.x + thickness, pocket1.y + diff))
+        vertices.append(vertices[0])
+        body = self.world.CreateStaticBody(
+            shapes=b2ChainShape(vertices_chain=vertices)
+        )
+        self.drawables.append(Drawable(body, Drawable.BROWN, Drawable.draw_rect, outline_color=(25, 14, 16)))
 
     def update_screen(self):
         # update ppm
@@ -145,10 +212,10 @@ class Pool:
         for ball in self.balls:
             ball_x = ball.position[0]
             ball_y = ball.position[1]
-            for x, y in self.pockets:
-                x2 = ball_x - x
+            for pt in self.pockets:
+                x2 = ball_x - pt.x
                 x2 = x2 * x2
-                y2 = ball_y - y
+                y2 = ball_y - pt.y
                 y2 = y2 * y2
                 if x2 + y2 <= Pool.POCKET_RADIUS_SQUARED:
                     self.balls.remove(ball)
@@ -156,24 +223,26 @@ class Pool:
                     break
 
     def simulate_until_still(self):
+        t0 = time.time()
         self.update_physics()
         self.world.ClearForces()
         while self.are_balls_moving():
             self.update_physics()
+        t1 = time.time()
+        print(f"time elapsed: {t1 - t0} s")
         
     def are_balls_moving(self):
         for ball in self.balls:
-            if ball.active and (ball.linearVelocity[0] > 0.01 or ball.linearVelocity[1] > 0.01):
+            if ball.linearVelocity[0] > 0.01 or ball.linearVelocity[1] > 0.01:
                 return True
         return False
 
     def update_graphics(self):
-        self.screen.screen.fill((0, 0, 0, 0))
-        self.table.draw(self.screen)
+        self.screen.screen.fill(Drawable.BILLIARD_GREEN)
 
-        for x, y in self.pockets:
-            x *= self.screen.ppm
-            y *= self.screen.ppm
+        for pt in self.pockets:
+            x = pt.x * self.screen.ppm
+            y = pt.y * self.screen.ppm
             position = (x + self.screen.offset_x, self.screen.screen_height - y - self.screen.offset_y)
             pygame.draw.circle(self.screen.screen, Drawable.BLACK, position, Pool.POCKET_RADIUS * self.screen.ppm)
 
@@ -187,9 +256,9 @@ class Pool:
         self.clock.tick(Pool.TICK_RATE)
 
     def run(self):
-        #self.simulate_until_still()
-        self.update_physics()
-        self.world.ClearForces()
+        self.simulate_until_still()
+        # self.update_physics()
+        # self.world.ClearForces()
         # game loop
         running = True
         while running:
@@ -205,7 +274,7 @@ class Pool:
                     self.screen.screen = pygame.display.set_mode((self.screen.screen_width, self.screen.screen_height), RESIZABLE)
             
             self.update_graphics()
-            self.update_physics()
+            # self.update_physics()
 
         pygame.quit()
         print('Done!')
