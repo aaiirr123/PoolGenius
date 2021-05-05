@@ -110,6 +110,7 @@ class PoolWorld(b2ContactListener):
         body2:b2Body = contact.fixtureB.body
         type1 = body1.userData["type"]
         type2 = body2.userData["type"]
+        # Pocket the ball if it comes into contact with a pocket
         if type1 == PoolWorld.BALL and type2 == PoolWorld.POCKET:
             body1.userData["pocketed"] = True
         elif type2 == PoolWorld.BALL and type1 == PoolWorld.POCKET:
@@ -118,12 +119,16 @@ class PoolWorld(b2ContactListener):
     def __init__(self, balls:List[Ball]):
         super().__init__()
         self.world = b2World(gravity=(0, 0), doSleep=True)
+        # Using a deque as a linked list improves performance
+        # Due to needing multiple remove() calls
         self.balls:deque[b2Body] = deque()
         self.pockets:List[Point] = []
         self.drawables:List[Drawable] = []
 
         self.world.autoClearForces = True
         self.world.contactListener = self
+
+        # Create the balls
 
         # constants taken from here:
         # https://github.com/agarwl/eight-ball-pool/blob/master/src/dominos.cpp
@@ -144,6 +149,9 @@ class PoolWorld(b2ContactListener):
             self.drawables.append(Drawable(ball, b.color, Drawable.draw_circle))
             i += 1
 
+        # Create the pockets
+        
+        # Create the points for each pocket
         for i in range(6):
             n = i % 3
             if n == 0:
@@ -155,18 +163,11 @@ class PoolWorld(b2ContactListener):
             y = Pool.POCKET_RADIUS if i <= 2 else Pool.TABLE_HEIGHT - Pool.POCKET_RADIUS
             self.pockets.append(Point(x, y))
 
-        # Create the edges of the pool table
-        top_left = self.pockets[0]
-        top_middle = self.pockets[1]
-        top_right = self.pockets[2]
-        bottom_left = self.pockets[3]
-        bottom_middle = self.pockets[4]
-        bottom_right = self.pockets[5]
-
-        self.pocket_bodies:List[b2Body] = []
-        pocket_fd = b2FixtureDef(
-            shape=b2CircleShape(radius=Pool.POCKET_RADIUS - Pool.BALL_RADIUS)
-        )
+        
+        # Create the pocket fixtures which are sensors
+        # The radius is such that a collision only occurs when the center of the ball
+        # overlaps with the edge of the pocket
+        pocket_fd = b2FixtureDef(shape=b2CircleShape(radius=Pool.POCKET_RADIUS - Pool.BALL_RADIUS))
         pocket_fd.isSensor = True
         for pocket in self.pockets:
             body:b2Body = self.world.CreateStaticBody(
@@ -174,7 +175,15 @@ class PoolWorld(b2ContactListener):
                 fixtures=pocket_fd
             )
             body.userData = {"type": PoolWorld.POCKET}
-            self.pocket_bodies.append(body)
+            self.drawables.append(Drawable(body, Drawable.BLUE, Drawable.draw_circle, outline_color=Drawable.RED))
+
+        # Create the edges of the pool table
+        top_left = self.pockets[0]
+        top_middle = self.pockets[1]
+        top_right = self.pockets[2]
+        bottom_left = self.pockets[3]
+        bottom_middle = self.pockets[4]
+        bottom_right = self.pockets[5]
         
         self.create_boundary_wall(top_left, top_middle, True)
         self.create_boundary_wall(top_middle, top_right, True)
@@ -183,7 +192,7 @@ class PoolWorld(b2ContactListener):
         self.create_boundary_wall(Point(bottom_left.x, bottom_left.y + Pool.POCKET_RADIUS), Point(bottom_middle.x, bottom_middle.y + Pool.POCKET_RADIUS), True)
         self.create_boundary_wall(Point(bottom_middle.x, bottom_middle.y + Pool.POCKET_RADIUS), Point(bottom_right.x, bottom_right.y + Pool.POCKET_RADIUS), True)
 
-        self.duration = 0
+        self.still_steps = 0
 
     def create_boundary_wall(self, pocket1:Point, pocket2:Point, horizontal:bool):
         vertices = []
@@ -207,31 +216,26 @@ class PoolWorld(b2ContactListener):
 
     def update_physics(self, time_step, vel_iters, pos_iters):
         # Make Box2D simulate the physics of our world for one step.
-        t0 = time.time()
         self.world.Step(time_step, vel_iters, pos_iters)
-        t1 = time.time()
-        self.duration += t1 - t0
 
-        ret = False
+        moving = False
         to_remove = []
         for ball in self.balls:
             if ball.userData["pocketed"]:
                 to_remove.append(ball)
-            elif not ret and (ball.linearVelocity[0] > 0.01 or ball.linearVelocity[1] > 0.01):
-                ret = True
+            elif not moving and (ball.linearVelocity[0] > 0.001 or ball.linearVelocity[1] > 0.001):
+                moving = True
         for ball in to_remove:
             self.balls.remove(ball)
             self.world.DestroyBody(ball)
-        return ret
+        if not moving:
+            self.still_steps += 1
+        else:
+            self.still_steps = 0
 
     def simulate_until_still(self, time_step, vel_iters, pos_iters):
-        t0 = time.time()
-        self.update_physics(time_step, vel_iters, pos_iters)
-        self.world.ClearForces()
-        while self.update_physics(time_step, vel_iters, pos_iters):
-            pass
-        t1 = time.time()
-        print(f"step duration: {self.duration} s, time elapsed: {t1 - t0} s")
+        while self.still_steps < 15:
+            self.update_physics(time_step, vel_iters, pos_iters)
 
 class Pool:
     TICK_RATE = 60
@@ -243,21 +247,8 @@ class Pool:
     TABLE_RATIO = TABLE_WIDTH / TABLE_HEIGHT
     BALL_RADIUS = 2 / 12
     POCKET_RADIUS = 3 / 12
-    POCKET_RADIUS_SQUARED = POCKET_RADIUS * POCKET_RADIUS
 
     def __init__(self):
-        colors = [Drawable.YELLOW, Drawable.BLUE, Drawable.RED, Drawable.PURPLE, Drawable.ORANGE, Drawable.GREEN, Drawable.BURGUNDY, Drawable.BLACK]
-        colors = random.sample(colors, 8)
-
-        balls = []
-        for i in range(8):
-            balls.append(Ball((random.randint(1, 8), random.randint(1, 4)), colors[i], (random.randint(-300, 300), random.randint(-300, 300))))
-
-        t0 = time.time()
-        self.pool = PoolWorld(balls)
-        t1 = time.time()
-        print(f"create world: {t1 - t0} s")
-
         pygame.init()
 
         width = 1280
@@ -306,8 +297,20 @@ class Pool:
         self.clock.tick(Pool.TICK_RATE)
 
     def run(self):
-        self.pool.simulate_until_still(Pool.TIME_STEP, Pool.VEL_ITERS, Pool.POS_ITERS)
-        #self.pool.update_physics(Pool.TIME_STEP, Pool.VEL_ITERS, Pool.POS_ITERS)
+        colors = [Drawable.YELLOW, Drawable.BLUE, Drawable.RED, Drawable.PURPLE, Drawable.ORANGE, Drawable.GREEN, Drawable.BURGUNDY, Drawable.BLACK]
+
+        balls = []
+        for i in range(8):
+            balls.append(Ball((random.randint(1, 8), random.randint(1, 4)), colors[i], (random.randint(-300, 300), random.randint(-300, 300))))
+        self.pool = PoolWorld(balls)
+        t0 = time.time()
+        self.pool.simulate_until_still(Pool.TIME_STEP, 6, 2)
+        t1 = time.time()
+        print(f"estimated shot time taken: {t1 - t0} s")
+        self.update_graphics()
+        pygame.time.wait(3000)
+
+        self.pool = PoolWorld(balls)
         # game loop
         running = True
         while running:
@@ -323,7 +326,7 @@ class Pool:
                     self.screen.screen = pygame.display.set_mode((self.screen.screen_width, self.screen.screen_height), RESIZABLE)
             
             self.update_graphics()
-            #self.pool.update_physics(Pool.TIME_STEP, Pool.VEL_ITERS, Pool.POS_ITERS)
+            self.pool.update_physics(Pool.TIME_STEP, Pool.VEL_ITERS, Pool.POS_ITERS)
 
         pygame.quit()
         print('Done!')
