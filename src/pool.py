@@ -93,11 +93,28 @@ class Drawable:
         else:
             pygame.draw.circle(screen.screen, color, position, circle.radius * screen.ppm)
 
+class Shot:
+
+    def __init__(self, angle:float, magnitude:float):
+        self.angle = angle
+        self.magnitude = magnitude
+
 class Ball:
-    def __init__(self, position, color, force=(0,0)):
+
+    def __init__(self, position, color, force = None):
         self.position = position
         self.color = color
-        self.force = force
+        self.force = b2Vec2(force)
+
+class PoolBoard:
+
+    def __init__(self, cue_ball_position, shot:Shot, balls:List[Ball]):
+        force = b2Vec2()
+        rads = math.radians(shot.angle)
+        force.x = math.cos(rads) * shot.magnitude
+        force.y = math.sin(rads) * shot.magnitude
+        self.cue_ball = Ball(cue_ball_position, Drawable.WHITE, force)
+        self.balls = balls
 
 class PoolWorld(b2ContactListener):
 
@@ -116,7 +133,7 @@ class PoolWorld(b2ContactListener):
         elif type2 == PoolWorld.BALL and type1 == PoolWorld.POCKET:
             body2.userData["pocketed"] = True
 
-    def __init__(self, balls:List[Ball]):
+    def __init__(self, board:PoolBoard):
         super().__init__()
         self.world = b2World(gravity=(0, 0), doSleep=True)
         # Using a deque as a linked list improves performance
@@ -138,7 +155,7 @@ class PoolWorld(b2ContactListener):
         ball_fd.restitution = 0.85
 
         i = 0
-        for b in balls:
+        for b in [board.cue_ball] + board.balls:
             ball:b2Body = self.world.CreateDynamicBody(position=b.position, fixtures=ball_fd)
             ball.bullet = True
             ball.linearDamping = 0.6
@@ -146,7 +163,8 @@ class PoolWorld(b2ContactListener):
             ball.ApplyForce(b.force, ball.worldCenter, True)
             ball.userData = {"type": PoolWorld.BALL, "num": i, "color": b.color, "pocketed": False}
             self.balls.append(ball)
-            self.drawables.append(Drawable(ball, b.color, Drawable.draw_circle))
+            outline_color = Drawable.WHITE if b.color[0] + b.color[1] + b.color[2] < 480 else Drawable.BLACK
+            self.drawables.append(Drawable(ball, b.color, Drawable.draw_circle, outline_color=outline_color))
             i += 1
 
         # Create the pockets
@@ -223,7 +241,7 @@ class PoolWorld(b2ContactListener):
         for ball in self.balls:
             if ball.userData["pocketed"]:
                 to_remove.append(ball)
-            elif not moving and (ball.linearVelocity[0] > 0.001 or ball.linearVelocity[1] > 0.001):
+            elif not moving and (ball.linearVelocity.x > 0.001 or ball.linearVelocity.x < -0.001 or ball.linearVelocity.y > 0.001 or ball.linearVelocity.y < -0.001):
                 moving = True
         for ball in to_remove:
             self.balls.remove(ball)
@@ -278,16 +296,16 @@ class Pool:
             self.screen.offset_x = 0
             self.screen.offset_y = int((self.screen.screen_height - (self.screen.screen_width / Pool.TABLE_RATIO))) // 2
 
-    def update_graphics(self):
+    def update_graphics(self, world:PoolWorld):
         self.screen.screen.fill(Drawable.BILLIARD_GREEN)
 
-        for pt in self.pool.pockets:
+        for pt in world.pockets:
             x = pt.x * self.screen.ppm
             y = pt.y * self.screen.ppm
             position = (x + self.screen.offset_x, self.screen.screen_height - y - self.screen.offset_y)
             pygame.draw.circle(self.screen.screen, Drawable.BLACK, position, Pool.POCKET_RADIUS * self.screen.ppm)
 
-        for drawable in self.pool.drawables:
+        for drawable in world.drawables:
             drawable.draw(self.screen)
 
         pygame.display.update()
@@ -296,21 +314,67 @@ class Pool:
         pygame.display.flip()
         self.clock.tick(Pool.TICK_RATE)
 
-    def run(self):
+    def random_float(self, bottom, top):
+        return random.random() * (top - bottom) + bottom
+
+    def generate_random_board(self) -> PoolBoard:
         colors = [Drawable.YELLOW, Drawable.BLUE, Drawable.RED, Drawable.PURPLE, Drawable.ORANGE, Drawable.GREEN, Drawable.BURGUNDY, Drawable.BLACK]
 
         balls = []
         for i in range(8):
-            balls.append(Ball((random.randint(1, 8), random.randint(1, 4)), colors[i], (random.randint(-300, 300), random.randint(-300, 300))))
-        self.pool = PoolWorld(balls)
+            balls.append(Ball((self.random_float(0.5, Pool.TABLE_WIDTH - 0.5), self.random_float(0.5, Pool.TABLE_HEIGHT - 0.5)), colors[i], (self.random_float(-300.0, 300.0), self.random_float(-300.0, 300.0))))
+        
+        return PoolBoard((2.5, 2.5), None, balls)
+
+    def generate_normal_board(self) -> PoolBoard:
+        colors = [Drawable.YELLOW, Drawable.BLUE, Drawable.RED, Drawable.PURPLE, Drawable.ORANGE, Drawable.GREEN, Drawable.BURGUNDY, Drawable.BLACK]
+
+        mid_x = Pool.TABLE_WIDTH / 4 - Pool.BALL_RADIUS
+        mid_y = Pool.TABLE_HEIGHT / 2
+
+        balls = []
+        diameter = 2 * Pool.BALL_RADIUS
+
+        # Generate 15 balls placed in a triangle like in a normal
+        # billiards game
+        for i in range(15):
+            x = mid_x
+            y = mid_y
+            if i == 0:
+                pass
+            elif i < 3:
+                x -= diameter * 0.85
+                if i == 1:
+                    y -= Pool.BALL_RADIUS
+                else:
+                    y += Pool.BALL_RADIUS
+            elif i < 6:
+                x -= 2 * diameter * 0.85
+                y += diameter * (i - 4)
+            elif i < 10:
+                x -= 3 * diameter * 0.85
+                y += diameter * (i - 8) + Pool.BALL_RADIUS
+            else:
+                x = mid_x - 4 * diameter * 0.85
+                y += diameter * (i - 12)
+            balls.append(Ball((x, y), colors[i % 8]))
+        
+        # Place cue ball and give it a random shot facing in the general direction
+        # of the other balls
+        return PoolBoard((Pool.TABLE_WIDTH * 0.75, mid_y), Shot(self.random_float(165, 195), self.random_float(100, 150)), balls)
+
+    def run(self):
+        balls = self.generate_normal_board()
+
+        world = PoolWorld(balls)
         t0 = time.time()
-        self.pool.simulate_until_still(Pool.TIME_STEP, 6, 2)
+        world.simulate_until_still(Pool.TIME_STEP, 6, 2)
         t1 = time.time()
         print(f"estimated shot time taken: {t1 - t0} s")
-        self.update_graphics()
+        self.update_graphics(world)
         pygame.time.wait(3000)
 
-        self.pool = PoolWorld(balls)
+        world = PoolWorld(balls)
         # game loop
         running = True
         while running:
@@ -325,11 +389,10 @@ class Pool:
                     self.update_screen()
                     self.screen.screen = pygame.display.set_mode((self.screen.screen_width, self.screen.screen_height), RESIZABLE)
             
-            self.update_graphics()
-            self.pool.update_physics(Pool.TIME_STEP, Pool.VEL_ITERS, Pool.POS_ITERS)
+            self.update_graphics(world)
+            world.update_physics(Pool.TIME_STEP, Pool.VEL_ITERS, Pool.POS_ITERS)
 
         pygame.quit()
-        print('Done!')
 
 if __name__ == "__main__":
     pool = Pool()
