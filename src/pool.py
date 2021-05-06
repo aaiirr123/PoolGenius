@@ -68,17 +68,18 @@ class Drawable:
         vertices = [(body.transform * v) * screen.ppm for v in polygon.vertices[:4]]
         vertices = [[x + screen.offset_x, screen.screen_height - y - screen.offset_y] for x, y in vertices]
         if outline:
+            thickness = screen.screen.get_height() // 360
             vertices.sort(key=lambda x : (x[0], x[1]))
             vertices = [vertices[0], vertices[2], vertices[3], vertices[1]]
             pygame.draw.polygon(screen.screen, outline_color, vertices)
-            vertices[0][0] += 2
-            vertices[0][1] += 2
-            vertices[1][0] -= 2
-            vertices[1][1] += 2
-            vertices[2][0] -= 2
-            vertices[2][1] -= 2
-            vertices[3][0] += 2
-            vertices[3][1] -= 2
+            vertices[0][0] += thickness
+            vertices[0][1] += thickness
+            vertices[1][0] -= thickness
+            vertices[1][1] += thickness
+            vertices[2][0] -= thickness
+            vertices[2][1] -= thickness
+            vertices[3][0] += thickness
+            vertices[3][1] -= thickness
             pygame.draw.polygon(screen.screen, color, vertices)
         else:
             pygame.draw.polygon(screen.screen, color, vertices)
@@ -90,7 +91,7 @@ class Drawable:
         r = circle.radius * screen.ppm
         if outline:
             pygame.draw.circle(screen.screen, outline_color, position, r)
-            pygame.draw.circle(screen.screen, color, position, r - 2)
+            pygame.draw.circle(screen.screen, color, position, r * 0.90)
         else:
             pygame.draw.circle(screen.screen, color, position, r)
 
@@ -99,29 +100,35 @@ class Drawable:
         x, y = body.transform * circle.pos * screen.ppm
         position = [x + screen.offset_x, screen.screen_height - y - screen.offset_y]
         r = circle.radius * screen.ppm
+        Drawable.draw_billiard_ball_helper(position, r, screen, color, outline_color, body.userData["num"], body.transform.angle)
+
+    @staticmethod
+    def draw_billiard_ball_helper(position, r, screen:ScreenInfo, color, outline_color, num, angle):
         # stripes
-        if body.userData["num"] > 8:
+        if num > 8:
             pygame.draw.circle(screen.screen, color, position, r)
-            pygame.draw.circle(screen.screen, Drawable.WHITE, position, r - 2)
+            pygame.draw.circle(screen.screen, Drawable.WHITE, position, r * 0.90)
 
             # draw the stipe using trig to draw straight lines across the circle
-            angle = body.transform.angle
             r -= 2.5
             steps = 49
             half = steps // 2
+            thickness = screen.screen.get_height() // 240
+            x = position[0]
+            y = position[1]
             for i in range(steps):
                 converted_angle1 = angle + (i - half) * 0.02
                 converted_angle2 = angle + math.pi - (i - half) * 0.02
-                x1 = r * math.cos(converted_angle1) + position[0]
-                y1 = r * math.sin(converted_angle1) + position[1]
-                x2 = r * math.cos(converted_angle2) + position[0]
-                y2 = r * math.sin(converted_angle2) + position[1]
-                pygame.draw.line(screen.screen, color, (x1, y1), (x2, y2), 3)
+                x1 = r * math.cos(converted_angle1) + x
+                y1 = r * math.sin(converted_angle1) + y
+                x2 = r * math.cos(converted_angle2) + x
+                y2 = r * math.sin(converted_angle2) + y
+                pygame.draw.line(screen.screen, color, (x1, y1), (x2, y2), thickness)
             r += 2.5
         # solids
         else:
             pygame.draw.circle(screen.screen, outline_color, position, r)
-            pygame.draw.circle(screen.screen, color, position, r - 2)
+            pygame.draw.circle(screen.screen, color, position, r * 0.90)
         pygame.draw.circle(screen.screen, Drawable.WHITE, position, r / 3)
 
 class Shot:
@@ -136,21 +143,22 @@ class Shot:
 
 class Ball:
 
-    def __init__(self, position, color, number):
+    def __init__(self, position, color, number, pocketed = False):
         self.position = position
         self.color = color
         self.number = number
+        self.pocketed = pocketed
 
 class CueBall(Ball):
 
-    def __init__(self, position, force = None):
-        super().__init__(position, Drawable.WHITE, -1)
-        self.force = force
+    def __init__(self, position, pocketed = False):
+        super().__init__(position, Drawable.WHITE, Pool.CUE_BALL, pocketed)
 
 class PoolBoard:
 
-    def __init__(self, cue_ball_position, shot:Shot, balls:List[Ball]):
-        self.cue_ball = CueBall(cue_ball_position, shot.calculate_force())
+    def __init__(self, cue_ball:CueBall, shot:Shot, balls:List[Ball]):
+        self.cue_ball = cue_ball
+        self.shot = shot
         self.balls = balls
 
 class PoolWorld(b2ContactListener):
@@ -159,7 +167,7 @@ class PoolWorld(b2ContactListener):
     POCKET = 2
     WALL = 3
 
-    def BeginContact(self, contact):
+    def BeginContact(self, contact:b2Contact):
         body1:b2Body = contact.fixtureA.body
         body2:b2Body = contact.fixtureB.body
         type1 = body1.userData["type"]
@@ -175,9 +183,12 @@ class PoolWorld(b2ContactListener):
         self.world = b2World(gravity=(0, 0), doSleep=True)
         # Using a deque as a linked list improves performance
         # Due to needing multiple remove() calls
-        self.balls:deque[b2Body] = deque()
-        self.pockets:List[Point] = []
-        self.drawables:List[Drawable] = []
+        self.balls : deque[b2Body] = deque()
+        self.pocketed_balls : List[Ball] = []
+        self.pockets : List[Point] = []
+        self.drawables : List[Drawable] = []
+
+        self.original_board = board
 
         self.world.autoClearForces = True
         self.world.contactListener = self
@@ -196,7 +207,7 @@ class PoolWorld(b2ContactListener):
             self.drawables.append(Drawable(ball, b.color, Drawable.draw_billiard_ball))
 
         cue_ball = self.create_ball(board.cue_ball, ball_fd)
-        cue_ball.ApplyForce(board.cue_ball.force, ball.worldCenter, True)
+        cue_ball.ApplyForce(board.shot.calculate_force(), cue_ball.localCenter, True)
         self.drawables.append(Drawable(cue_ball, board.cue_ball.color, Drawable.draw_billiard_ball, outline_color=Drawable.BLACK))
 
         # Create the pockets
@@ -277,7 +288,7 @@ class PoolWorld(b2ContactListener):
         self.world.Step(time_step, vel_iters, pos_iters)
 
         moving = False
-        to_remove = []
+        to_remove:List[b2Body] = []
         for ball in self.balls:
             if ball.userData["pocketed"]:
                 to_remove.append(ball)
@@ -285,6 +296,7 @@ class PoolWorld(b2ContactListener):
                 moving = True
         for ball in to_remove:
             self.balls.remove(ball)
+            self.pocketed_balls.append(Ball(ball.position, ball.userData["color"], ball.userData["num"], True))
             self.world.DestroyBody(ball)
         if not moving:
             self.still_steps += 1
@@ -305,13 +317,14 @@ class Pool:
     TABLE_RATIO = TABLE_WIDTH / TABLE_HEIGHT
     BALL_RADIUS = 2 / 12
     POCKET_RADIUS = 3 / 12
+    WIDTH = 1920
+    HEIGHT = WIDTH // 2
+    CUE_BALL = 0
 
     def __init__(self):
         pygame.init()
 
-        width = 1280
-        height = width // 2
-        self.screen = ScreenInfo(pygame.display.set_mode((1280, 720)), width, height, 0, 0, 0)
+        self.screen = ScreenInfo(pygame.display.set_mode((Pool.WIDTH, (Pool.HEIGHT * 9) // 8)), Pool.WIDTH, Pool.HEIGHT, 0, 0, 0)
         pygame.display.set_caption("Billiards")
         self.clock = pygame.time.Clock()
 
@@ -348,6 +361,13 @@ class Pool:
         for drawable in world.drawables:
             drawable.draw(self.screen)
 
+        for ball in world.pocketed_balls:
+            r = Pool.BALL_RADIUS * self.screen.ppm
+            h = self.screen.screen.get_height()
+            y = h - (h - self.screen.screen_height) // 2
+            x = (ball.number + 0.5) / 16 * self.screen.screen_width
+            Drawable.draw_billiard_ball_helper([x, y], r, self.screen, ball.color, Drawable.WHITE if ball.number != Pool.CUE_BALL else Drawable.BLACK, ball.number, 0)
+
         pygame.display.update()
 
         # Flip the screen and try to keep at the target FPS
@@ -357,16 +377,16 @@ class Pool:
     def random_float(self, bottom, top):
         return random.random() * (top - bottom) + bottom
 
-    def generate_random_board(self) -> PoolBoard:
+    def generate_random_board(self, shot:Shot) -> PoolBoard:
         colors = [Drawable.YELLOW, Drawable.BLUE, Drawable.RED, Drawable.PURPLE, Drawable.ORANGE, Drawable.GREEN, Drawable.BURGUNDY, Drawable.BLACK]
 
         balls = []
         for i in range(8):
             balls.append(Ball((self.random_float(0.5, Pool.TABLE_WIDTH - 0.5), self.random_float(0.5, Pool.TABLE_HEIGHT - 0.5)), colors[i], (self.random_float(-300.0, 300.0), self.random_float(-300.0, 300.0))))
         
-        return PoolBoard((2.5, 2.5), Shot(0, 0), balls)
+        return PoolBoard(CueBall((2.5, 2.5)), shot, balls)
 
-    def generate_normal_board(self) -> PoolBoard:
+    def generate_normal_board(self, shot:Shot) -> PoolBoard:
         colors = [Drawable.YELLOW, Drawable.BLUE, Drawable.RED, Drawable.PURPLE, Drawable.ORANGE, Drawable.GREEN, Drawable.BURGUNDY, Drawable.BLACK]
 
         mid_x = Pool.TABLE_WIDTH / 4 - Pool.BALL_RADIUS
@@ -399,22 +419,20 @@ class Pool:
                 y += diameter * (i - 12)
             balls.append(Ball((x, y), colors[i % 8], i + 1))
         
-        # Place cue ball and give it a random shot facing in the general direction
-        # of the other balls
-        return PoolBoard((Pool.TABLE_WIDTH * 0.75, mid_y), Shot(self.random_float(165, 195), self.random_float(100, 150)), balls)
+        return PoolBoard(CueBall((Pool.TABLE_WIDTH * 0.75, mid_y)), shot, balls)
 
     def run(self):
-        balls = self.generate_normal_board()
+        board = self.generate_normal_board(Shot(self.random_float(165, 195), self.random_float(100, 150)))
 
-        world = PoolWorld(balls)
+        world = PoolWorld(board)
         t0 = time.time()
-        world.simulate_until_still(Pool.TIME_STEP, 6, 2)
+        world.simulate_until_still(Pool.TIME_STEP, Pool.VEL_ITERS, Pool.POS_ITERS)
         t1 = time.time()
         print(f"estimated shot time taken: {t1 - t0} s")
         self.update_graphics(world)
         pygame.time.wait(3000)
 
-        world = PoolWorld(balls)
+        world = PoolWorld(board)
         # game loop
         running = True
         while running:
