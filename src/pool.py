@@ -1,4 +1,4 @@
-from typing import Callable, Dict, List, Tuple
+from typing import Callable, List, Tuple
 import pygame.display
 import pygame.draw
 import pygame.event
@@ -42,7 +42,7 @@ class Drawable:
     RED = 255, 0, 0
     WHITE = 255, 255, 255
     BROWN = 50, 28, 32
-    YELLOW = 255, 255, 0
+    YELLOW = 255, 215, 0
     BLUE = 0, 0, 255
     PURPLE = 128, 0, 128
     GREEN = 0, 128, 0
@@ -87,11 +87,42 @@ class Drawable:
     def draw_circle(circle:b2CircleShape, body:b2Body, color:Tuple[int, int, int], screen:ScreenInfo, outline:bool, outline_color:Tuple[int, int, int]):
         x, y = body.transform * circle.pos * screen.ppm
         position = (x + screen.offset_x, screen.screen_height - y - screen.offset_y)
+        r = circle.radius * screen.ppm
         if outline:
-            pygame.draw.circle(screen.screen, outline_color, position, circle.radius * screen.ppm)
-            pygame.draw.circle(screen.screen, color, position, circle.radius * screen.ppm - 2)
+            pygame.draw.circle(screen.screen, outline_color, position, r)
+            pygame.draw.circle(screen.screen, color, position, r - 2)
         else:
-            pygame.draw.circle(screen.screen, color, position, circle.radius * screen.ppm)
+            pygame.draw.circle(screen.screen, color, position, r)
+
+    @staticmethod
+    def draw_billiard_ball(circle:b2CircleShape, body:b2Body, color:Tuple[int, int, int], screen:ScreenInfo, outline:bool, outline_color:Tuple[int, int, int]):
+        x, y = body.transform * circle.pos * screen.ppm
+        position = [x + screen.offset_x, screen.screen_height - y - screen.offset_y]
+        r = circle.radius * screen.ppm
+        # stripes
+        if body.userData["num"] > 8:
+            pygame.draw.circle(screen.screen, color, position, r)
+            pygame.draw.circle(screen.screen, Drawable.WHITE, position, r - 2)
+
+            # draw the stipe using trig to draw straight lines across the circle
+            angle = body.transform.angle
+            r -= 2.5
+            steps = 49
+            half = steps // 2
+            for i in range(steps):
+                converted_angle1 = angle + (i - half) * 0.02
+                converted_angle2 = angle + math.pi - (i - half) * 0.02
+                x1 = r * math.cos(converted_angle1) + position[0]
+                y1 = r * math.sin(converted_angle1) + position[1]
+                x2 = r * math.cos(converted_angle2) + position[0]
+                y2 = r * math.sin(converted_angle2) + position[1]
+                pygame.draw.line(screen.screen, color, (x1, y1), (x2, y2), 3)
+            r += 2.5
+        # solids
+        else:
+            pygame.draw.circle(screen.screen, outline_color, position, r)
+            pygame.draw.circle(screen.screen, color, position, r - 2)
+        pygame.draw.circle(screen.screen, Drawable.WHITE, position, r / 3)
 
 class Shot:
 
@@ -99,21 +130,27 @@ class Shot:
         self.angle = angle
         self.magnitude = magnitude
 
+    def calculate_force(self):
+        rads = math.radians(self.angle)
+        return b2Vec2(math.cos(rads) * self.magnitude, math.sin(rads) * self.magnitude)
+
 class Ball:
 
-    def __init__(self, position, color, force = None):
+    def __init__(self, position, color, number):
         self.position = position
         self.color = color
-        self.force = b2Vec2(force)
+        self.number = number
+
+class CueBall(Ball):
+
+    def __init__(self, position, force = None):
+        super().__init__(position, Drawable.WHITE, -1)
+        self.force = force
 
 class PoolBoard:
 
     def __init__(self, cue_ball_position, shot:Shot, balls:List[Ball]):
-        force = b2Vec2()
-        rads = math.radians(shot.angle)
-        force.x = math.cos(rads) * shot.magnitude
-        force.y = math.sin(rads) * shot.magnitude
-        self.cue_ball = Ball(cue_ball_position, Drawable.WHITE, force)
+        self.cue_ball = CueBall(cue_ball_position, shot.calculate_force())
         self.balls = balls
 
 class PoolWorld(b2ContactListener):
@@ -154,18 +191,13 @@ class PoolWorld(b2ContactListener):
         ball_fd.friction = 0.2
         ball_fd.restitution = 0.85
 
-        i = 0
-        for b in [board.cue_ball] + board.balls:
-            ball:b2Body = self.world.CreateDynamicBody(position=b.position, fixtures=ball_fd)
-            ball.bullet = True
-            ball.linearDamping = 0.6
-            ball.angularDamping = 0.6
-            ball.ApplyForce(b.force, ball.worldCenter, True)
-            ball.userData = {"type": PoolWorld.BALL, "num": i, "color": b.color, "pocketed": False}
-            self.balls.append(ball)
-            outline_color = Drawable.WHITE if b.color[0] + b.color[1] + b.color[2] < 480 else Drawable.BLACK
-            self.drawables.append(Drawable(ball, b.color, Drawable.draw_circle, outline_color=outline_color))
-            i += 1
+        for b in board.balls:
+            ball = self.create_ball(b, ball_fd)
+            self.drawables.append(Drawable(ball, b.color, Drawable.draw_billiard_ball))
+
+        cue_ball = self.create_ball(board.cue_ball, ball_fd)
+        cue_ball.ApplyForce(board.cue_ball.force, ball.worldCenter, True)
+        self.drawables.append(Drawable(cue_ball, board.cue_ball.color, Drawable.draw_billiard_ball, outline_color=Drawable.BLACK))
 
         # Create the pockets
         
@@ -180,7 +212,6 @@ class PoolWorld(b2ContactListener):
                 x = Pool.TABLE_WIDTH - Pool.POCKET_RADIUS
             y = Pool.POCKET_RADIUS if i <= 2 else Pool.TABLE_HEIGHT - Pool.POCKET_RADIUS
             self.pockets.append(Point(x, y))
-
         
         # Create the pocket fixtures which are sensors
         # The radius is such that a collision only occurs when the center of the ball
@@ -211,6 +242,15 @@ class PoolWorld(b2ContactListener):
         self.create_boundary_wall(Point(bottom_middle.x, bottom_middle.y + Pool.POCKET_RADIUS), Point(bottom_right.x, bottom_right.y + Pool.POCKET_RADIUS), True)
 
         self.still_steps = 0
+
+    def create_ball(self, b:Ball, ball_fd:b2Fixture) -> b2Body:
+        ball:b2Body = self.world.CreateDynamicBody(position=b.position, fixtures=ball_fd)
+        ball.bullet = True
+        ball.linearDamping = 0.6
+        ball.angularDamping = 0.6
+        ball.userData = {"type": PoolWorld.BALL, "num": b.number, "color": b.color, "pocketed": False}
+        self.balls.append(ball)
+        return ball
 
     def create_boundary_wall(self, pocket1:Point, pocket2:Point, horizontal:bool):
         vertices = []
@@ -258,8 +298,8 @@ class PoolWorld(b2ContactListener):
 class Pool:
     TICK_RATE = 60
     TIME_STEP = 1.0 / TICK_RATE
-    VEL_ITERS = 6
-    POS_ITERS = 2
+    VEL_ITERS = 8
+    POS_ITERS = 3
     TABLE_WIDTH = 9.0
     TABLE_HEIGHT = 4.5
     TABLE_RATIO = TABLE_WIDTH / TABLE_HEIGHT
@@ -324,7 +364,7 @@ class Pool:
         for i in range(8):
             balls.append(Ball((self.random_float(0.5, Pool.TABLE_WIDTH - 0.5), self.random_float(0.5, Pool.TABLE_HEIGHT - 0.5)), colors[i], (self.random_float(-300.0, 300.0), self.random_float(-300.0, 300.0))))
         
-        return PoolBoard((2.5, 2.5), None, balls)
+        return PoolBoard((2.5, 2.5), Shot(0, 0), balls)
 
     def generate_normal_board(self) -> PoolBoard:
         colors = [Drawable.YELLOW, Drawable.BLUE, Drawable.RED, Drawable.PURPLE, Drawable.ORANGE, Drawable.GREEN, Drawable.BURGUNDY, Drawable.BLACK]
@@ -357,7 +397,7 @@ class Pool:
             else:
                 x = mid_x - 4 * diameter * 0.85
                 y += diameter * (i - 12)
-            balls.append(Ball((x, y), colors[i % 8]))
+            balls.append(Ball((x, y), colors[i % 8], i + 1))
         
         # Place cue ball and give it a random shot facing in the general direction
         # of the other balls
