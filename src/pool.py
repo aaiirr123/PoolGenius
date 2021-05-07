@@ -5,16 +5,16 @@ import math
 import pygame.display
 import pygame.draw
 import pygame.event
+from pygame.locals import (QUIT, KEYDOWN, K_ESCAPE, RESIZABLE, VIDEORESIZE)
 from pygame.surface import Surface
 import pygame.time
-from pygame.locals import (QUIT, KEYDOWN, K_ESCAPE, RESIZABLE, VIDEORESIZE)
 import random
 import threading
 import time
 from typing import Callable, List, Tuple
 
-from constants import Constants
 import ai
+from constants import Constants
 
 def random_float(bottom, top):
     return random.random() * (top - bottom) + bottom
@@ -188,12 +188,68 @@ class CueBall(Ball):
     def __init__(self, position, pocketed = False, angle = 0.0):
         super().__init__(position, Constants.CUE_BALL, pocketed, angle)
 
+class PoolState(Enum):
+    ONGOING = 0
+    PLAYER1_WIN = 1
+    PLAYER2_WIN = 2
+
+class PoolPlayer(Enum):
+    PLAYER1 = 1
+    PLAYER2 = 2
+
 # Represents a board state, contains position and data of balls and the cue ball
 class PoolBoard:
 
-    def __init__(self, cue_ball:CueBall, balls:List[Ball]):
+    def __init__(self, cue_ball:CueBall, balls:List[Ball], previous_board:"PoolBoard" = None):
         self.cue_ball = cue_ball
         self.balls = balls
+        self.previous_board = previous_board
+        self.player1_pocketed = 0
+        self.player2_pocketed = 0
+        self.eight_ball = None
+        for ball in self.balls:
+            if ball.number == 8:
+                self.eight_ball = ball
+            elif ball.pocketed and ball.number != Constants.CUE_BALL:
+                if ball.number < 8:
+                    self.player1_pocketed += 1
+                else:
+                    self.player2_pocketed += 1
+        self.turn = self._get_turn()
+
+    def _get_turn(self) -> PoolPlayer:
+        if self.previous_board is None:
+            return PoolPlayer.PLAYER1 if random.random() > 0.5 else PoolPlayer.PLAYER2
+        elif self.previous_board.turn == PoolPlayer.PLAYER1:
+            if self.cue_ball.pocketed:
+                return PoolPlayer.PLAYER2
+            elif self.player1_pocketed > self.previous_board.player1_pocketed:
+                return PoolPlayer.PLAYER1
+            else:
+                return PoolPlayer.PLAYER2
+        else:
+            if self.cue_ball.pocketed:
+                return PoolPlayer.PLAYER1
+            elif self.player2_pocketed > self.previous_board.player2_pocketed:
+                return PoolPlayer.PLAYER2
+            else:
+                return PoolPlayer.PLAYER1
+
+    def get_state(self) -> PoolState:
+        if self.eight_ball.pocketed:
+            if self.previous_board is None:
+                return PoolState.PLAYER1_WIN if self.turn == PoolPlayer.PLAYER1 else PoolState.PLAYER2_WIN
+            elif self.previous_board.turn == PoolPlayer.PLAYER1:
+                if self.previous_board.player1_pocketed == 7:
+                    return PoolState.PLAYER1_WIN
+                else:
+                    return PoolState.PLAYER2_WIN
+            else:
+                if self.previous_board.player2_pocketed == 7:
+                    return PoolState.PLAYER2_WIN
+                else:
+                    return PoolState.PLAYER1_WIN
+        return PoolState.ONGOING
 
     def __str__(self):
         ls = [f"Cue ball:\n{self.cue_ball}\nBalls:"]
@@ -390,7 +446,7 @@ class PoolWorld(b2ContactListener):
                 balls.append(Ball(ball.position, ball.userData.number, False, ball.angle))
         if cue_ball is None:
             raise Exception("Cue ball doesn't exist")
-        return PoolBoard(cue_ball, balls) 
+        return PoolBoard(cue_ball, balls, self.initial_board)
 
 class Pool:
     
@@ -508,13 +564,16 @@ class Pool:
         # self.update_graphics(world)
         # pygame.time.wait(3000)
 
-        player1 = ai.RandomAI()
+        player1 = ai.RandomAI(PoolPlayer.PLAYER1)
+        player2 = ai.RandomAI(PoolPlayer.PLAYER2)
         shot_queue = []
         ai_thinking = False
         simulating = False
+        game_over = False
 
         #world = PoolWorld(board, shot)
         board = self.generate_normal_board()
+        print(f"Turn: {board.turn}")
         world = PoolWorld(board)
 
         still_frames = 0
@@ -532,24 +591,32 @@ class Pool:
                     self.update_screen()
                     self.screen.screen = pygame.display.set_mode((self.screen.screen_width, self.screen.screen_height), RESIZABLE)
             
-            if not simulating and not ai_thinking and len(shot_queue) == 0:
-                threading.Thread(target = player1.take_shot, args=(board, shot_queue)).start()
-                ai_thinking = True
-            elif len(shot_queue) > 0:
-                ai_thinking = False
-                simulating = True
-                shot = shot_queue.pop()
-                world.shoot(shot)
-            
-            if simulating:
-                if not world.update_physics(Constants.TIME_STEP, Constants.VEL_ITERS, Constants.POS_ITERS):
-                    still_frames += 1
-                else:
-                    still_frames = 0
-                if still_frames > 3:
-                    board = world.get_board_state()
-                    world = PoolWorld(board)
-                    simulating = False
+            if not game_over:
+                if not simulating and not ai_thinking and len(shot_queue) == 0:
+                    target = player1.take_shot if board.turn == PoolPlayer.PLAYER1 else player2.take_shot
+                    threading.Thread(target=target, args=(board, shot_queue)).start()
+                    ai_thinking = True
+                elif len(shot_queue) > 0:
+                    ai_thinking = False
+                    simulating = True
+                    shot = shot_queue.pop()
+                    world.shoot(shot)
+                
+                if simulating:
+                    if not world.update_physics(Constants.TIME_STEP, Constants.VEL_ITERS, Constants.POS_ITERS):
+                        still_frames += 1
+                    else:
+                        still_frames = 0
+                    if still_frames > 3:
+                        board = world.get_board_state()
+                        state = board.get_state()
+                        if state == PoolState.ONGOING:
+                            print(f"Turn: {board.turn}")
+                            world = PoolWorld(board)
+                            simulating = False
+                        else:
+                            print(f"Outcome: {state}")
+                            game_over = True
 
             self.update_graphics(world)
                         

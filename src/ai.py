@@ -1,10 +1,13 @@
 from abc import ABC, abstractmethod
 from typing import List
-from pool import PoolBoard, Shot, random_float
+from pool import PoolBoard, Shot, random_float, PoolWorld, PoolPlayer
 import time
 from constants import Constants
 
 class PoolAI(ABC):
+
+    def __init__(self, player : PoolPlayer):
+        self.player = player
 
     def take_shot(self, board : PoolBoard, queue : List):
         queue.append(self.shot_handler(board))
@@ -16,6 +19,7 @@ class PoolAI(ABC):
 class RandomAI(PoolAI):
 
     def shot_handler(self, board: PoolBoard) -> Shot:
+        print(f"In shot handler: player {self.player}")
         time.sleep(1)
         shot = Shot(random_float(0, 360), random_float(100, 150))
         if board.cue_ball.pocketed:
