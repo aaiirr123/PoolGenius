@@ -375,17 +375,21 @@ class Pool:
             self.screen.offset_y = int((self.screen.screen_height - (self.screen.screen_width / Constants.TABLE_RATIO))) // 2
 
     def update_graphics(self, world:PoolWorld):
+        # Fill in background
         self.screen.screen.fill(Drawable.BILLIARD_GREEN)
 
+        # Draw the separately pockets (because they don't actually exist)
         for pt in world.pockets:
             x = pt.x * self.screen.ppm
             y = pt.y * self.screen.ppm
-            position = (x + self.screen.offset_x, self.screen.screen_height - y - self.screen.offset_y)
+            position = [x + self.screen.offset_x, self.screen.screen_height - y - self.screen.offset_y]
             pygame.draw.circle(self.screen.screen, Drawable.BLACK, position, Constants.POCKET_RADIUS * self.screen.ppm)
 
+        # Draw drawables
         for drawable in world.drawables:
             drawable.draw(self.screen)
 
+        # Draw the pocketed balls at the bottom of the screen
         for ball in world.pocketed_balls:
             r = Constants.BALL_RADIUS * self.screen.ppm
             h = self.screen.screen.get_height()
@@ -393,7 +397,18 @@ class Pool:
             x = (ball.number + 0.5) / 16 * self.screen.screen_width
             Drawable.draw_billiard_ball_helper([x, y], r, self.screen, ball.color, Drawable.WHITE if ball.number != Constants.CUE_BALL else Drawable.BLACK, ball.number, 0)
 
-        pygame.display.update()
+        # Draw which players turn it is (blue bar if player 1, red bar if player 2)
+        width = self.screen.screen.get_width() // 2
+        h = self.screen.screen.get_height()
+        height = h // 96
+        top = h - height
+        if world.initial_board.turn == PoolPlayer.PLAYER1:
+            left = 0
+            color = Drawable.BLUE
+        else:
+            left = width
+            color = Drawable.RED
+        pygame.draw.rect(self.screen.screen, color, [left, top, width, height])
 
         # Flip the screen and try to keep at the target FPS
         pygame.display.flip()
@@ -515,7 +530,6 @@ class Pool:
 
             self.update_graphics(world)
                         
-
         pygame.quit()
 
 if __name__ == "__main__":
