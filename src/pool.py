@@ -46,6 +46,9 @@ class Shot:
         rads = math.radians(self.angle)
         return b2Vec2(math.cos(rads) * self.magnitude, math.sin(rads) * self.magnitude)
 
+    def __str__(self):
+        return f"Angle: {self.angle} degrees, magnitude: {self.magnitude} N"
+
     @staticmethod
     def test_cue_ball_position(cue_ball_position, balls : List["Ball"]) -> bool:
         r_squared = Constants.BALL_RADIUS * Constants.BALL_RADIUS
@@ -133,9 +136,7 @@ class PoolBoard:
 
     def get_state(self) -> PoolState:
         if self.eight_ball.pocketed:
-            if self.previous_board is None:
-                return PoolState.PLAYER1_WIN if self.turn == PoolPlayer.PLAYER1 else PoolState.PLAYER2_WIN
-            elif self.previous_board.turn == PoolPlayer.PLAYER1:
+            if self.previous_board.turn == PoolPlayer.PLAYER1:
                 if self.previous_board.player1_pocketed == 7:
                     return PoolState.PLAYER1_WIN
                 else:
@@ -175,40 +176,22 @@ class BallData(PoolData):
 # This can be used to simulate a given shot constructed from a PoolBoard
 class PoolWorld(b2ContactListener):
 
-    def BeginContact(self, contact:b2Contact):
-        data1 = contact.fixtureA.body.userData
-        data2 = contact.fixtureB.body.userData
-        type1 = data1.type
-        type2 = data2.type
-        # Pocket the ball if it comes into contact with a pocket
-        if type1 == PoolType.BALL and type2 == PoolType.POCKET:
-            data1.pocketed = True
-        elif type2 == PoolType.BALL and type1 == PoolType.POCKET:
-            data2.pocketed = True
-
     def __init__(self, board:PoolBoard):
         super().__init__()
-        self.world = b2World(gravity=(0, 0), doSleep=True)
         # Using a deque as a linked list improves performance
         # Due to needing multiple remove() calls
         self.balls : deque[b2Body] = deque()
         self.pocketed_balls : List[Ball] = []
-        self.pockets : List[Point] = []
         self.drawables : List[Drawable] = []
+        self.pockets = PoolWorld.create_pockets()
 
         self.initial_board = board
 
+        self.world = b2World(gravity=(0, 0), doSleep=True)
         self.world.autoClearForces = True
         self.world.contactListener = self
 
         # Create the balls
-
-        # constants taken from here:
-        # https://github.com/agarwl/eight-ball-pool/blob/master/src/dominos.cpp
-        self.ball_fd = b2FixtureDef(shape=b2CircleShape(radius=Constants.BALL_RADIUS))
-        self.ball_fd.density = 1.0
-        self.ball_fd.friction = 0.2
-        self.ball_fd.restitution = 0.8
 
         if not board.cue_ball.pocketed:
             self.cue_ball = self.create_ball(board.cue_ball)
@@ -223,20 +206,6 @@ class PoolWorld(b2ContactListener):
                 self.drawables.append(Drawable(ball, b.color, Drawable.draw_billiard_ball))
             else:
                 self.pocketed_balls.append(b)
-
-        # Create the pockets
-        
-        # Create the points for each pocket
-        for i in range(6):
-            n = i % 3
-            if n == 0:
-                x = Constants.POCKET_RADIUS
-            elif n == 1:
-                x = Constants.TABLE_WIDTH / 2
-            else:
-                x = Constants.TABLE_WIDTH - Constants.POCKET_RADIUS
-            y = Constants.POCKET_RADIUS if i <= 2 else Constants.TABLE_HEIGHT - Constants.POCKET_RADIUS
-            self.pockets.append(Point(x, y))
         
         # Create the pocket fixtures which are sensors
         # The radius is such that a collision only occurs when the center of the ball
@@ -259,12 +228,24 @@ class PoolWorld(b2ContactListener):
         bottom_middle = self.pockets[4]
         bottom_right = self.pockets[5]
         
+        thickness = Constants.POCKET_RADIUS
         self.create_boundary_wall(top_left, top_middle, True)
         self.create_boundary_wall(top_middle, top_right, True)
         self.create_boundary_wall(top_right, bottom_right, False)
-        self.create_boundary_wall(Point(top_left.x - Constants.POCKET_RADIUS, top_left.y), Point(bottom_left.x - Constants.POCKET_RADIUS, bottom_left.y), False)
-        self.create_boundary_wall(Point(bottom_left.x, bottom_left.y + Constants.POCKET_RADIUS), Point(bottom_middle.x, bottom_middle.y + Constants.POCKET_RADIUS), True)
-        self.create_boundary_wall(Point(bottom_middle.x, bottom_middle.y + Constants.POCKET_RADIUS), Point(bottom_right.x, bottom_right.y + Constants.POCKET_RADIUS), True)
+        self.create_boundary_wall(Point(top_left.x - thickness, top_left.y), Point(bottom_left.x - thickness, bottom_left.y), False)
+        self.create_boundary_wall(Point(bottom_left.x, bottom_left.y + thickness), Point(bottom_middle.x, bottom_middle.y + thickness), True)
+        self.create_boundary_wall(Point(bottom_middle.x, bottom_middle.y + thickness), Point(bottom_right.x, bottom_right.y + thickness), True)
+
+    def BeginContact(self, contact:b2Contact):
+        data1 = contact.fixtureA.body.userData
+        data2 = contact.fixtureB.body.userData
+        type1 = data1.type
+        type2 = data2.type
+        # Pocket the ball if it comes into contact with a pocket
+        if type1 == PoolType.BALL and type2 == PoolType.POCKET:
+            data1.pocketed = True
+        elif type2 == PoolType.BALL and type1 == PoolType.POCKET:
+            data2.pocketed = True
 
     def shoot(self, shot:Shot):
         if self.cue_ball is None:
@@ -274,7 +255,14 @@ class PoolWorld(b2ContactListener):
         self.cue_ball.ApplyForce(shot.calculate_force(), self.cue_ball.localCenter, True)
 
     def create_ball(self, b:Ball) -> b2Body:
-        ball:b2Body = self.world.CreateDynamicBody(position=b.position, angle=b.angle, fixtures=self.ball_fd)
+        # constants taken from here:
+        # https://github.com/agarwl/eight-ball-pool/blob/master/src/dominos.cpp
+        ball_fd = b2FixtureDef(shape=b2CircleShape(radius=Constants.BALL_RADIUS))
+        ball_fd.density = 1.0
+        ball_fd.friction = 0.2
+        ball_fd.restitution = 0.8
+    
+        ball:b2Body = self.world.CreateDynamicBody(position=b.position, angle=b.angle, fixtures=ball_fd)
         ball.bullet = True
         ball.linearDamping = 0.6
         ball.angularDamping = 0.6
@@ -316,16 +304,19 @@ class PoolWorld(b2ContactListener):
         for ball in to_remove:
             self.balls.remove(ball)
             self.pocketed_balls.append(Ball([0, 0], ball.userData.number, True))
-            self.world.DestroyBody(ball)
+            ball.active = False
+            #self.world.DestroyBody(ball)
         return moving
 
-    def simulate_until_still(self, time_step, vel_iters, pos_iters):
+    def simulate_until_still(self, time_step, vel_iters, pos_iters, max_steps=Constants.TICK_RATE * 15):
+        steps = 0
         still_frames = 0
-        while still_frames < 3:
+        while steps < max_steps and still_frames < 3:
             if not self.update_physics(time_step, vel_iters, pos_iters):
                 still_frames += 1
             else:
                 still_frames = 0
+            steps += 1
 
     def get_board_state(self):
         cue_ball = None
@@ -343,6 +334,21 @@ class PoolWorld(b2ContactListener):
         if cue_ball is None:
             raise Exception("Cue ball doesn't exist")
         return PoolBoard(cue_ball, balls, self.initial_board)
+
+    @staticmethod
+    def create_pockets() -> List[Point]:
+        pockets = []
+        for i in range(6):
+            n = i % 3
+            if n == 0:
+                x = Constants.POCKET_RADIUS
+            elif n == 1:
+                x = Constants.TABLE_WIDTH / 2
+            else:
+                x = Constants.TABLE_WIDTH - Constants.POCKET_RADIUS
+            y = Constants.POCKET_RADIUS if i <= 2 else Constants.TABLE_HEIGHT - Constants.POCKET_RADIUS
+            pockets.append(Point(x, y))
+        return pockets
 
 class Pool:
 
@@ -474,8 +480,8 @@ class Pool:
         # self.update_graphics(world)
         # pygame.time.wait(3000)
 
-        player1 = ai.RandomAI(PoolPlayer.PLAYER1)
-        player2 = ai.RandomAI(PoolPlayer.PLAYER2)
+        player1 = ai.SimpleAI(PoolPlayer.PLAYER1)
+        player2 = ai.SimpleAI(PoolPlayer.PLAYER2)
         shot_queue = []
         ai_thinking = False
         simulating = False
@@ -504,7 +510,8 @@ class Pool:
             if not game_over:
                 if not simulating and not ai_thinking and len(shot_queue) == 0:
                     target = player1.take_shot if board.turn == PoolPlayer.PLAYER1 else player2.take_shot
-                    threading.Thread(target=target, args=(board, shot_queue)).start()
+                    thread = threading.Thread(target=target, args=(board, shot_queue))
+                    thread.run()
                     ai_thinking = True
                 elif len(shot_queue) > 0:
                     ai_thinking = False
@@ -529,7 +536,8 @@ class Pool:
                             game_over = True
 
             self.update_graphics(world)
-                        
+
+        print("Done!")   
         pygame.quit()
 
 if __name__ == "__main__":
