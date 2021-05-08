@@ -2,7 +2,6 @@ from abc import ABC, abstractmethod
 import heapq
 import math
 import time
-import traceback
 from typing import List
 
 from Box2D.Box2D import b2Vec2
@@ -69,9 +68,9 @@ class SimpleAI(PoolAI):
                     break
             position = b2Vec2(x, y)
         queue : List[ComparableShot] = []
-        max_steps = Constants.TICK_RATE * 5
+        max_steps = Constants.TICK_RATE * 8
         magnitudes = [75, 100, 125]
-        angles = [i * 0.5 for i in range(0, 720)]
+        angles = [i for i in range(0, 360)]
         for angle in angles:
             for magnitude in magnitudes:
                 if len(queue) % 50 == 0:
