@@ -434,17 +434,18 @@ class Pool:
             Drawable.draw_billiard_ball_helper([x, y], r, self.screen, ball.color, Drawable.WHITE if ball.number != Constants.CUE_BALL else Drawable.BLACK, ball.number, ball.angle)
 
         # Draw which players turn it is (blue bar if player 1, red bar if player 2)
-        width = self.screen.screen.get_width() // 2
-        h = self.screen.screen.get_height()
-        height = h // 96
-        top = h - height
-        if graphics.board.turn == PoolPlayer.PLAYER1:
-            left = 0
-            color = Drawable.BLUE
-        else:
-            left = width
-            color = Drawable.RED
-        pygame.draw.rect(self.screen.screen, color, [left, top, width, height])
+        if graphics.board.get_state() == PoolState.ONGOING:
+            width = self.screen.screen.get_width() // 2
+            h = self.screen.screen.get_height()
+            height = h // 96
+            top = h - height
+            if graphics.board.turn == PoolPlayer.PLAYER1:
+                left = 0
+                color = Drawable.BLUE
+            else:
+                left = width
+                color = Drawable.RED
+            pygame.draw.rect(self.screen.screen, color, [left, top, width, height])
 
         # Flip the screen and try to keep at the target FPS
         pygame.display.flip()

@@ -69,16 +69,17 @@ class SimpleAI(PoolAI):
                     break
             position = b2Vec2(x, y)
         queue : List[ComparableShot] = []
-        magnitudes = [75, 100, 125, 150]
-        max_steps = Constants.TICK_RATE * 6
-        for angle in range(0, 360, 1):
+        max_steps = Constants.TICK_RATE * 5
+        magnitudes = [75, 100, 125]
+        angles = [i * 0.5 for i in range(0, 720)]
+        for angle in angles:
             for magnitude in magnitudes:
                 if len(queue) % 50 == 0:
                     print(f"Shots generated: {len(queue)}")
                 shot = Shot(angle, magnitude, position)
                 Pool.WORLD.load_board(board)
                 Pool.WORLD.shoot(shot)
-                Pool.WORLD.simulate_until_still(Constants.TIME_STEP, Constants.VEL_ITERS, Constants.POS_ITERS, max_steps)
+                Pool.WORLD.simulate_until_still(Constants.TIME_STEP, Constants.VEL_ITERS-1, Constants.POS_ITERS-1, max_steps)
                 heapq.heappush(queue, ComparableShot(shot, self.compute_heuristic(Pool.WORLD.get_board_state())))
         best = heapq.heappop(queue)
         print(f"Heuristic: {best.heuristic}, Shot: {best.shot}")
@@ -101,15 +102,19 @@ class SimpleAI(PoolAI):
                 return 1000.0
 
         heuristic = board.player1_pocketed * 5.0
+        if board.player1_pocketed == 7:
+            heuristic += 15.0
         heuristic -= board.player2_pocketed * 5.0
+        if board.player2_pocketed == 7:
+            heuristic -= 15.0
 
         for ball in board.balls:
             if ball.number == 8:
-                if self.player == PoolPlayer.PLAYER1 and board.player1_pocketed == 7:
+                if board.player1_pocketed == 7:
                     dist = self.distance_to_closest_pocket(ball)
                     value = 1 / dist
                     heuristic += value
-                elif board.player2_pocketed == 7:
+                if board.player2_pocketed == 7:
                     dist = self.distance_to_closest_pocket(ball)
                     value = 1 / dist
                     heuristic -= value
