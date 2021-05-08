@@ -110,9 +110,10 @@ class PoolBoard:
         self.cue_ball = cue_ball
         self.balls = balls
         self.previous_board = previous_board
+        self.first_hit : Ball = None
         self.player1_pocketed = 0
         self.player2_pocketed = 0
-        self.eight_ball = None
+        self.eight_ball : Ball = None
         for ball in self.balls:
             if ball.number == 8:
                 self.eight_ball = ball
@@ -126,24 +127,27 @@ class PoolBoard:
     def _get_turn(self) -> PoolPlayer:
         if self.previous_board is None:
             return PoolPlayer.PLAYER1 if random.random() > 0.5 else PoolPlayer.PLAYER2
-        elif self.previous_board.turn == PoolPlayer.PLAYER1:
-            if self.cue_ball.pocketed:
-                return PoolPlayer.PLAYER2
-            elif self.player1_pocketed > self.previous_board.player1_pocketed:
-                return PoolPlayer.PLAYER1
-            else:
-                return PoolPlayer.PLAYER2
         else:
-            if self.cue_ball.pocketed:
-                return PoolPlayer.PLAYER1
-            elif self.player2_pocketed > self.previous_board.player2_pocketed:
+            first_hit = self.previous_board.first_hit
+        if self.previous_board.turn == PoolPlayer.PLAYER1:
+            if self.cue_ball.pocketed or first_hit is None or first_hit.number > 7 or (first_hit.number == 8 and self.previous_board.player1_pocketed != 7) or self.player1_pocketed <= self.previous_board.player1_pocketed:
                 return PoolPlayer.PLAYER2
             else:
                 return PoolPlayer.PLAYER1
+        else:
+            if self.cue_ball.pocketed or first_hit is None or first_hit.number < 9 or (first_hit.number == 8 and self.previous_board.player2_pocketed != 7) or self.player2_pocketed <= self.previous_board.player2_pocketed:
+                return PoolPlayer.PLAYER1
+            else:
+                return PoolPlayer.PLAYER2
 
     def get_state(self) -> PoolState:
         if self.eight_ball.pocketed:
-            if self.previous_board.turn == PoolPlayer.PLAYER1:
+            if self.cue_ball.pocketed:
+                if self.previous_board.turn == PoolPlayer.PLAYER1:
+                    return PoolState.PLAYER2_WIN
+                else:
+                    return PoolState.PLAYER1_WIN
+            elif self.previous_board.turn == PoolPlayer.PLAYER1:
                 if self.previous_board.player1_pocketed == 7:
                     return PoolState.PLAYER1_WIN
                 else:
@@ -192,8 +196,8 @@ class PoolWorld(b2ContactListener):
         self.drawables : List[Drawable] = []
         self.pockets = PoolWorld.create_pockets()
 
-        self.board = None
-        self.cue_ball = None
+        self.board : PoolBoard = None
+        self.cue_ball : b2Body = None
 
         self.world = b2World(gravity=(0, 0), doSleep=True)
         self.world.autoClearForces = True
@@ -238,6 +242,11 @@ class PoolWorld(b2ContactListener):
             data1.pocketed = True
         elif type2 == PoolType.BALL and type1 == PoolType.POCKET:
             data2.pocketed = True
+        elif self.board.first_hit is None and type1 == PoolType.BALL and type2 == PoolType.BALL:
+            if data1.number == Constants.CUE_BALL:
+                self.board.first_hit = Ball.from_b2_body(contact.fixtureB.body)
+            elif data2.number == Constants.CUE_BALL:
+                self.board.first_hit = Ball.from_b2_body(contact.fixtureA.body)
 
     def load_board(self, board : PoolBoard):
         self.board = board
@@ -256,6 +265,8 @@ class PoolWorld(b2ContactListener):
                 ball = self.create_ball(b)
             else:
                 self.pocketed_balls.append(b)
+        
+        self.first_hit = None
 
     def shoot(self, shot:Shot):
         if self.cue_ball is None:
@@ -566,7 +577,6 @@ class Pool:
                             print(f"Outcome: {state}")
                             game_over = True
                         Pool.WORLD.load_board(board)
-                        graphics = Pool.WORLD.get_graphics()
 
             self.update_graphics(graphics)
 

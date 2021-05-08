@@ -8,6 +8,6 @@ class Constants:
     TABLE_RATIO = TABLE_WIDTH / TABLE_HEIGHT
     BALL_RADIUS = 2 / 12
     POCKET_RADIUS = 3 / 12
-    WIDTH = 1920
+    WIDTH = 1280
     HEIGHT = WIDTH // 2
     CUE_BALL = 0

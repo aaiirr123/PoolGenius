@@ -107,6 +107,11 @@ class SimpleAI(PoolAI):
         if board.player2_pocketed == 7:
             heuristic -= 15.0
 
+        if board.turn == PoolPlayer.PLAYER1:
+            heuristic += 50
+        else:
+            heuristic -= 50
+
         for ball in board.balls:
             if ball.number == 8:
                 if board.player1_pocketed == 7:
@@ -128,8 +133,8 @@ class SimpleAI(PoolAI):
         if self.player == PoolPlayer.PLAYER2:
             heuristic = 0.0 - heuristic
 
-        if board.cue_ball.pocketed:
-            heuristic -= 50
+        # if board.cue_ball.pocketed:
+        #     heuristic -= 50
 
         return heuristic
 
