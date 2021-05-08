@@ -5,7 +5,9 @@ import time
 import traceback
 from typing import List
 
-from pool import Ball, PoolBoard, Shot, random_float, PoolWorld, PoolPlayer, PoolState
+from Box2D.Box2D import b2Vec2
+
+from pool import Ball, PoolBoard, Shot, random_float, PoolWorld, PoolPlayer, PoolState, Pool
 from constants import Constants
 
 class PoolAI(ABC):
@@ -15,11 +17,7 @@ class PoolAI(ABC):
 
     def take_shot(self, board : PoolBoard, queue : List):
         print(f"In shot handler: player {self.player}")
-        try:
-            queue.append(self.shot_handler(board))
-        except Exception as e:
-            traceback.print_tb(e.__traceback__)
-            queue.append(Shot(0,0,[3,3]))
+        queue.append(self.shot_handler(board))
 
     @abstractmethod
     def shot_handler(self, board : PoolBoard) -> Shot:
@@ -36,9 +34,9 @@ class RandomAI(PoolAI):
             while True:
                 x = random_float(Constants.BALL_RADIUS + 0.5, Constants.TABLE_WIDTH - Constants.BALL_RADIUS - 0.5)
                 y = random_float(Constants.BALL_RADIUS + 0.5, Constants.TABLE_HEIGHT - Constants.BALL_RADIUS - 0.5)
-                if Shot.test_cue_ball_position((x, y), board.balls):
+                if Shot.test_cue_ball_position(b2Vec2(x, y), board.balls):
                     break
-            shot.cue_ball_position = (x, y)
+            shot.cue_ball_position = b2Vec2(x, y)
         return shot
 
 class ComparableShot:
@@ -67,21 +65,21 @@ class SimpleAI(PoolAI):
             while True:
                 x = random_float(Constants.BALL_RADIUS + 0.5, Constants.TABLE_WIDTH - Constants.BALL_RADIUS - 0.5)
                 y = random_float(Constants.BALL_RADIUS + 0.5, Constants.TABLE_HEIGHT - Constants.BALL_RADIUS - 0.5)
-                if Shot.test_cue_ball_position((x, y), board.balls):
+                if Shot.test_cue_ball_position(b2Vec2(x, y), board.balls):
                     break
-            position = (x, y)
+            position = b2Vec2(x, y)
         queue : List[ComparableShot] = []
-        magnitudes = [75, 100, 125]
-        max_steps = Constants.TICK_RATE * 8
-        for angle in range(0, 360, 2):
+        magnitudes = [75, 100, 125, 150]
+        max_steps = Constants.TICK_RATE * 6
+        for angle in range(0, 360, 1):
             for magnitude in magnitudes:
                 if len(queue) % 50 == 0:
                     print(f"Shots generated: {len(queue)}")
                 shot = Shot(angle, magnitude, position)
-                world = PoolWorld(board)
-                world.shoot(shot)
-                world.simulate_until_still(Constants.TIME_STEP, Constants.VEL_ITERS, Constants.POS_ITERS, max_steps)
-                heapq.heappush(queue, ComparableShot(shot, self.compute_heuristic(world.get_board_state())))
+                Pool.WORLD.load_board(board)
+                Pool.WORLD.shoot(shot)
+                Pool.WORLD.simulate_until_still(Constants.TIME_STEP, Constants.VEL_ITERS, Constants.POS_ITERS, max_steps)
+                heapq.heappush(queue, ComparableShot(shot, self.compute_heuristic(Pool.WORLD.get_board_state())))
         best = heapq.heappop(queue)
         print(f"Heuristic: {best.heuristic}, Shot: {best.shot}")
         for _ in range(10):
@@ -107,16 +105,24 @@ class SimpleAI(PoolAI):
 
         for ball in board.balls:
             if ball.number == 8:
-                continue
-            dist = self.distance_to_closest_pocket(ball)
-            value = min(1 / dist, 1.0)
-            if ball.number < 8:
-                heuristic += value
+                if self.player == PoolPlayer.PLAYER1 and board.player1_pocketed == 7:
+                    dist = self.distance_to_closest_pocket(ball)
+                    value = 1 / dist
+                    heuristic += value
+                elif board.player2_pocketed == 7:
+                    dist = self.distance_to_closest_pocket(ball)
+                    value = 1 / dist
+                    heuristic -= value
             else:
-                heuristic -= value
+                dist = self.distance_to_closest_pocket(ball)
+                value = min(1 / dist, 1.0)
+                if ball.number < 8:
+                    heuristic += value
+                else:
+                    heuristic -= value
 
         if self.player == PoolPlayer.PLAYER2:
-            heuristic *= -1.0
+            heuristic = 0.0 - heuristic
 
         if board.cue_ball.pocketed:
             heuristic -= 50

@@ -1,6 +1,6 @@
 from Box2D.Box2D import *
 from collections import deque
-from enum import Enum
+from enum import IntEnum
 import math
 import pygame.display
 import pygame.draw
@@ -70,7 +70,7 @@ class Ball:
     COLORS = [Drawable.YELLOW, Drawable.BLUE, Drawable.RED, Drawable.PURPLE, Drawable.ORANGE, Drawable.GREEN, Drawable.BURGUNDY, Drawable.BLACK]
 
     def __init__(self, position, number, pocketed = False, angle = 0.0):
-        self.position = position
+        self.position = b2Vec2(position[0], position[1])
         if number == Constants.CUE_BALL:
             self.color = Drawable.WHITE
         else:
@@ -82,17 +82,24 @@ class Ball:
     def __str__(self):
         return f"Ball {self.number}: [x: {self.position[0]:.3f}, y: {self.position[1]:.3f}], pocketed: {self.pocketed}, color: {self.color}"
 
+    @staticmethod
+    def from_b2_body(body : b2Body):
+        if body.userData.number == Constants.CUE_BALL:
+            return CueBall(body.position, body.userData.pocketed, body.angle)
+        else:
+            return Ball(body.position, body.userData.number, body.userData.pocketed, body.angle)
+
 class CueBall(Ball):
 
     def __init__(self, position, pocketed = False, angle = 0.0):
         super().__init__(position, Constants.CUE_BALL, pocketed, angle)
 
-class PoolState(Enum):
+class PoolState(IntEnum):
     ONGOING = 0
     PLAYER1_WIN = 1
     PLAYER2_WIN = 2
 
-class PoolPlayer(Enum):
+class PoolPlayer(IntEnum):
     PLAYER1 = 1
     PLAYER2 = 2
 
@@ -155,7 +162,7 @@ class PoolBoard:
         return "\n".join(ls)
 
 # Used in userData
-class PoolType(Enum):
+class PoolType(IntEnum):
     BALL = 1
     POCKET = 2
     WALL = 3
@@ -176,7 +183,7 @@ class BallData(PoolData):
 # This can be used to simulate a given shot constructed from a PoolBoard
 class PoolWorld(b2ContactListener):
 
-    def __init__(self, board:PoolBoard):
+    def __init__(self):
         super().__init__()
         # Using a deque as a linked list improves performance
         # Due to needing multiple remove() calls
@@ -185,27 +192,12 @@ class PoolWorld(b2ContactListener):
         self.drawables : List[Drawable] = []
         self.pockets = PoolWorld.create_pockets()
 
-        self.initial_board = board
+        self.board = None
+        self.cue_ball = None
 
         self.world = b2World(gravity=(0, 0), doSleep=True)
         self.world.autoClearForces = True
         self.world.contactListener = self
-
-        # Create the balls
-
-        if not board.cue_ball.pocketed:
-            self.cue_ball = self.create_ball(board.cue_ball)
-            self.drawables.append(Drawable(self.cue_ball, board.cue_ball.color, Drawable.draw_billiard_ball, outline_color=Drawable.BLACK))
-        else:
-            self.cue_ball = None
-            self.pocketed_balls.append(board.cue_ball)
-
-        for b in board.balls:
-            if not b.pocketed:
-                ball = self.create_ball(b)
-                self.drawables.append(Drawable(ball, b.color, Drawable.draw_billiard_ball))
-            else:
-                self.pocketed_balls.append(b)
         
         # Create the pocket fixtures which are sensors
         # The radius is such that a collision only occurs when the center of the ball
@@ -247,11 +239,28 @@ class PoolWorld(b2ContactListener):
         elif type2 == PoolType.BALL and type1 == PoolType.POCKET:
             data2.pocketed = True
 
+    def load_board(self, board : PoolBoard):
+        self.board = board
+        for ball in self.balls:
+            self.world.DestroyBody(ball)
+        self.balls = []
+        self.pocketed_balls = []
+        if not board.cue_ball.pocketed:
+            self.cue_ball = self.create_ball(board.cue_ball)
+        else:
+            self.cue_ball = None
+            self.pocketed_balls.append(board.cue_ball)
+
+        for b in board.balls:
+            if not b.pocketed:
+                ball = self.create_ball(b)
+            else:
+                self.pocketed_balls.append(b)
+
     def shoot(self, shot:Shot):
         if self.cue_ball is None:
             self.cue_ball = self.create_ball(CueBall(shot.cue_ball_position))
-            self.pocketed_balls.remove(self.initial_board.cue_ball)
-            self.drawables.append(Drawable(self.cue_ball, self.initial_board.cue_ball.color, Drawable.draw_billiard_ball, outline_color=Drawable.BLACK))
+            self.pocketed_balls.remove(self.board.cue_ball)
         self.cue_ball.ApplyForce(shot.calculate_force(), self.cue_ball.localCenter, True)
 
     def create_ball(self, b:Ball) -> b2Body:
@@ -302,10 +311,11 @@ class PoolWorld(b2ContactListener):
             elif not moving and (ball.linearVelocity.x > 0.001 or ball.linearVelocity.x < -0.001 or ball.linearVelocity.y > 0.001 or ball.linearVelocity.y < -0.001):
                 moving = True
         for ball in to_remove:
+            # if ball.userData.number == Constants.CUE_BALL:
+            #     self.cue_ball = None
+            self.pocketed_balls.append(Ball.from_b2_body(ball))
             self.balls.remove(ball)
-            self.pocketed_balls.append(Ball([0, 0], ball.userData.number, True))
-            ball.active = False
-            #self.world.DestroyBody(ball)
+            self.world.DestroyBody(ball)
         return moving
 
     def simulate_until_still(self, time_step, vel_iters, pos_iters, max_steps=Constants.TICK_RATE * 15):
@@ -328,12 +338,15 @@ class PoolWorld(b2ContactListener):
                 balls.append(ball)
         for ball in self.balls:
             if ball.userData.number == Constants.CUE_BALL:
-                cue_ball = CueBall(ball.position, False, ball.angle)
+                cue_ball = Ball.from_b2_body(ball)
             else:
-                balls.append(Ball(ball.position, ball.userData.number, False, ball.angle))
+                balls.append(Ball.from_b2_body(ball))
         if cue_ball is None:
             raise Exception("Cue ball doesn't exist")
-        return PoolBoard(cue_ball, balls, self.initial_board)
+        return PoolBoard(cue_ball, balls, self.board)
+
+    def get_graphics(self):
+        return PoolGraphics(self.pockets, self.drawables, self.pocketed_balls, [Ball.from_b2_body(body) for body in self.balls], self.board)
 
     @staticmethod
     def create_pockets() -> List[Point]:
@@ -350,7 +363,18 @@ class PoolWorld(b2ContactListener):
             pockets.append(Point(x, y))
         return pockets
 
+class PoolGraphics:
+
+    def __init__(self, pockets : List[Point], drawables : List[Drawable], pocketed_balls : List[Ball], unpocketed_balls : List[Ball], board : PoolBoard):
+        self.pockets = pockets
+        self.drawables = drawables
+        self.pocketed_balls = pocketed_balls
+        self.unpocketed_balls = unpocketed_balls
+        self.board = board
+
 class Pool:
+
+    WORLD = PoolWorld()
 
     def __init__(self):
         pygame.init()
@@ -380,35 +404,41 @@ class Pool:
             self.screen.offset_x = 0
             self.screen.offset_y = int((self.screen.screen_height - (self.screen.screen_width / Constants.TABLE_RATIO))) // 2
 
-    def update_graphics(self, world:PoolWorld):
+    def update_graphics(self, graphics:PoolGraphics):
         # Fill in background
         self.screen.screen.fill(Drawable.BILLIARD_GREEN)
 
         # Draw the separately pockets (because they don't actually exist)
-        for pt in world.pockets:
+        for pt in graphics.pockets:
             x = pt.x * self.screen.ppm
             y = pt.y * self.screen.ppm
             position = [x + self.screen.offset_x, self.screen.screen_height - y - self.screen.offset_y]
             pygame.draw.circle(self.screen.screen, Drawable.BLACK, position, Constants.POCKET_RADIUS * self.screen.ppm)
 
         # Draw drawables
-        for drawable in world.drawables:
+        for drawable in graphics.drawables:
             drawable.draw(self.screen)
 
         # Draw the pocketed balls at the bottom of the screen
-        for ball in world.pocketed_balls:
+        for ball in graphics.pocketed_balls:
             r = Constants.BALL_RADIUS * self.screen.ppm
             h = self.screen.screen.get_height()
             y = h - (h - self.screen.screen_height) // 2
             x = (ball.number + 0.5) / 16 * self.screen.screen_width
             Drawable.draw_billiard_ball_helper([x, y], r, self.screen, ball.color, Drawable.WHITE if ball.number != Constants.CUE_BALL else Drawable.BLACK, ball.number, 0)
 
+        for ball in graphics.unpocketed_balls:
+            r = Constants.BALL_RADIUS * self.screen.ppm
+            x = ball.position[0] * self.screen.ppm
+            y = ball.position[1] * self.screen.ppm
+            Drawable.draw_billiard_ball_helper([x, y], r, self.screen, ball.color, Drawable.WHITE if ball.number != Constants.CUE_BALL else Drawable.BLACK, ball.number, ball.angle)
+
         # Draw which players turn it is (blue bar if player 1, red bar if player 2)
         width = self.screen.screen.get_width() // 2
         h = self.screen.screen.get_height()
         height = h // 96
         top = h - height
-        if world.initial_board.turn == PoolPlayer.PLAYER1:
+        if graphics.board.turn == PoolPlayer.PLAYER1:
             left = 0
             color = Drawable.BLUE
         else:
@@ -487,10 +517,10 @@ class Pool:
         simulating = False
         game_over = False
 
-        #world = PoolWorld(board, shot)
         board = self.generate_normal_board()
         print(f"Turn: {board.turn}")
-        world = PoolWorld(board)
+        Pool.WORLD.load_board(board)
+        graphics = Pool.WORLD.get_graphics()
 
         still_frames = 0
         # game loop
@@ -510,32 +540,34 @@ class Pool:
             if not game_over:
                 if not simulating and not ai_thinking and len(shot_queue) == 0:
                     target = player1.take_shot if board.turn == PoolPlayer.PLAYER1 else player2.take_shot
-                    thread = threading.Thread(target=target, args=(board, shot_queue))
-                    thread.run()
+                    threading.Thread(target=target, args=(board, shot_queue)).start()
                     ai_thinking = True
                 elif len(shot_queue) > 0:
                     ai_thinking = False
                     simulating = True
                     shot = shot_queue.pop()
-                    world.shoot(shot)
+                    Pool.WORLD.load_board(board)
+                    Pool.WORLD.shoot(shot)
                 
                 if simulating:
-                    if not world.update_physics(Constants.TIME_STEP, Constants.VEL_ITERS, Constants.POS_ITERS):
+                    if not Pool.WORLD.update_physics(Constants.TIME_STEP, Constants.VEL_ITERS, Constants.POS_ITERS):
                         still_frames += 1
                     else:
                         still_frames = 0
+                    graphics = Pool.WORLD.get_graphics()
                     if still_frames > 3:
-                        board = world.get_board_state()
+                        board = Pool.WORLD.get_board_state()
                         state = board.get_state()
                         if state == PoolState.ONGOING:
                             print(f"Turn: {board.turn}")
-                            world = PoolWorld(board)
                             simulating = False
                         else:
                             print(f"Outcome: {state}")
                             game_over = True
+                        Pool.WORLD.load_board(board)
+                        graphics = Pool.WORLD.get_graphics()
 
-            self.update_graphics(world)
+            self.update_graphics(graphics)
 
         print("Done!")   
         pygame.quit()
