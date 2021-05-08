@@ -114,6 +114,7 @@ class PoolBoard:
         self.player1_pocketed = 0
         self.player2_pocketed = 0
         self.eight_ball : Ball = None
+        self.turn_number = 0 if previous_board is None else previous_board.turn_number + 1
         for ball in self.balls:
             if ball.number == 8:
                 self.eight_ball = ball
@@ -125,10 +126,14 @@ class PoolBoard:
         self.turn = self._get_turn()
 
     def _get_turn(self) -> PoolPlayer:
-        if self.previous_board is None:
+        if self.turn_number == 0:
             return PoolPlayer.PLAYER1 if random.random() > 0.5 else PoolPlayer.PLAYER2
-        else:
-            first_hit = self.previous_board.first_hit
+        elif self.turn_number == 1:
+            if self.previous_board.turn == PoolPlayer.PLAYER1:
+                return PoolPlayer.PLAYER1 if self.player1_pocketed > 0 and not self.cue_ball.pocketed else PoolPlayer.PLAYER2
+            else:
+                return PoolPlayer.PLAYER2 if self.player2_pocketed > 0 and not self.cue_ball.pocketed else PoolPlayer.PLAYER1
+        first_hit = self.previous_board.first_hit
         if self.previous_board.turn == PoolPlayer.PLAYER1:
             if self.cue_ball.pocketed or first_hit is None or first_hit.number > 7 or (first_hit.number == 8 and self.previous_board.player1_pocketed != 7) or self.player1_pocketed <= self.previous_board.player1_pocketed:
                 return PoolPlayer.PLAYER2
@@ -160,7 +165,10 @@ class PoolBoard:
         return PoolState.ONGOING
 
     def __str__(self):
-        ls = [f"Cue ball:\n{self.cue_ball}\nBalls:"]
+        ls = [f"Turn number: {self.turn_number}"]
+        if self.previous_board is not None:
+            ls.append(f"Prev board first hit: {self.previous_board.first_hit}")
+        ls.append(f"Cue ball:\n{self.cue_ball}\nBalls:")
         for ball in self.balls:
             ls.append(str(ball))
         return "\n".join(ls)
@@ -329,9 +337,10 @@ class PoolWorld(b2ContactListener):
             self.world.DestroyBody(ball)
         return moving
 
-    def simulate_until_still(self, time_step, vel_iters, pos_iters, max_steps=Constants.TICK_RATE * 15):
+    def simulate_until_still(self, time_step, vel_iters, pos_iters, max_seconds=15):
         steps = 0
         still_frames = 0
+        max_steps = int(max_seconds / time_step)
         while steps < max_steps and still_frames < 3:
             if not self.update_physics(time_step, vel_iters, pos_iters):
                 still_frames += 1
@@ -571,12 +580,14 @@ class Pool:
                         board = Pool.WORLD.get_board_state()
                         state = board.get_state()
                         if state == PoolState.ONGOING:
-                            print(f"Turn: {board.turn}")
+                            print(f"Turn: {board.turn.name}")
                             simulating = False
                         else:
-                            print(f"Outcome: {state}")
+                            print(f"Outcome: {state.name}")
                             game_over = True
+                        print(board)
                         Pool.WORLD.load_board(board)
+                        graphics = Pool.WORLD.get_graphics()
 
             self.update_graphics(graphics)
 

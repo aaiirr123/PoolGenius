@@ -1,6 +1,7 @@
 from abc import ABC, abstractmethod
 import heapq
 import math
+import threading
 import time
 from typing import List
 
@@ -16,7 +17,11 @@ class PoolAI(ABC):
 
     def take_shot(self, board : PoolBoard, queue : List):
         print(f"In shot handler: player {self.player}")
-        queue.append(self.shot_handler(board))
+        t0 = time.time()
+        s = self.shot_handler(board)
+        t1 = time.time()
+        print(f"time elapsed taking shot: {t1 - t0} s")
+        queue.append(s)
 
     @abstractmethod
     def shot_handler(self, board : PoolBoard) -> Shot:
@@ -54,7 +59,8 @@ class SimpleAI(PoolAI):
 
     def __init__(self, player: PoolPlayer):
         super().__init__(player)
-        self.pockets = PoolWorld.create_pockets()
+        # measured in seconds
+        self.max_simulation_time = 8
 
     def shot_handler(self, board: PoolBoard) -> Shot:
         position = None
@@ -68,7 +74,6 @@ class SimpleAI(PoolAI):
                     break
             position = b2Vec2(x, y)
         queue : List[ComparableShot] = []
-        max_steps = Constants.TICK_RATE * 8
         magnitudes = [75, 100, 125]
         angles = [i for i in range(0, 360)]
         for angle in angles:
@@ -78,7 +83,7 @@ class SimpleAI(PoolAI):
                 shot = Shot(angle, magnitude, position)
                 Pool.WORLD.load_board(board)
                 Pool.WORLD.shoot(shot)
-                Pool.WORLD.simulate_until_still(Constants.TIME_STEP, Constants.VEL_ITERS-1, Constants.POS_ITERS-1, max_steps)
+                Pool.WORLD.simulate_until_still(Constants.TIME_STEP, Constants.VEL_ITERS, Constants.POS_ITERS, self.max_simulation_time)
                 heapq.heappush(queue, ComparableShot(shot, self.compute_heuristic(Pool.WORLD.get_board_state())))
         best = heapq.heappop(queue)
         print(f"Heuristic: {best.heuristic}, Shot: {best.shot}")
@@ -140,7 +145,7 @@ class SimpleAI(PoolAI):
 
     def distance_to_closest_pocket(self, ball : Ball):
         closest = 999.0
-        for pocket in self.pockets:
+        for pocket in Pool.WORLD.pockets:
             x2 = ball.position[0] - pocket.x
             y2 = ball.position[1] - pocket.y
             dist = x2 * x2 + y2 * y2
