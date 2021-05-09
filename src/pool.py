@@ -403,10 +403,12 @@ class PoolGraphics:
 
 class GameLog:
 
-    def __init__(self):
+    def __init__(self, player1, player2):
         self.player1_time = 0.0
         self.player2_time = 0.0
         self.boards : List[PoolBoard] = []
+        self.player1 = player1
+        self.player2 = player2
 
     def add_player_1_time(self, time):
         self.player1_time += time
@@ -459,7 +461,7 @@ class Pool:
         self.log_name = datetime.now().strftime("%Y-%m-%d_%H-%M-%S.csv")
         self.log_folder = Path("../logs/").resolve()
         with open(self.log_folder / self.log_name, "w") as file:
-            file.write("first turn,player1 time,player2 time,player1 shots,player2 shots,outcome\n")
+            file.write("first turn,player1 time,player2 time,player1 shots,player2 shots,outcome,ai1,ai2\n")
 
     def log(self, game_log : GameLog):
         with open(self.log_folder / self.log_name, "a") as file:
@@ -481,6 +483,8 @@ class Pool:
                 items.append(winner.name)
             else:
                 items.append("n/a")
+            items.append(game_log.player1.name())
+            items.append(game_log.player2.name())
             file.write(",".join(items) + "\n")
 
     def update_screen(self):
@@ -600,7 +604,7 @@ class Pool:
 
     def run(self):
         player1 = ai.SimpleAI(PoolPlayer.PLAYER1)
-        player2 = ai.SimpleAI(PoolPlayer.PLAYER2)
+        player2 = ai.DepthAI(PoolPlayer.PLAYER2)
         shot_queue = []
         ai_thinking = False
         simulating = False
@@ -611,7 +615,7 @@ class Pool:
         Pool.WORLD.load_board(board)
         graphics = Pool.WORLD.get_graphics()
 
-        log = GameLog()
+        log = GameLog(player1, player2)
 
         still_frames = 0
         # game loop
@@ -661,7 +665,7 @@ class Pool:
                         print(f"Outcome: {state.name}")
                         log.add_board(board)
                         self.log(log)
-                        log = GameLog()
+                        log = GameLog(player1, player2)
                         board = self.generate_normal_board()
                         simulating = False
                     print(board)

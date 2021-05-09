@@ -1,13 +1,12 @@
 from abc import ABC, abstractmethod
 import heapq
 import math
-import threading
 import time
 from typing import List
 
 from Box2D.Box2D import b2Vec2
 
-from pool import Ball, PoolBoard, Shot, random_float, PoolWorld, PoolPlayer, PoolState, Pool
+from pool import Ball, PoolBoard, Shot, random_float, PoolPlayer, PoolState, Pool
 from constants import Constants
 
 class PoolAI(ABC):
@@ -28,7 +27,14 @@ class PoolAI(ABC):
     def shot_handler(self, board : PoolBoard) -> Shot:
         pass
 
+    @abstractmethod
+    def name(self) -> str:
+        pass
+
 class RandomAI(PoolAI):
+
+    def name(self) -> str:
+        return "random"
 
     def shot_handler(self, board: PoolBoard) -> Shot:
         time.sleep(1)
@@ -46,9 +52,10 @@ class RandomAI(PoolAI):
 
 class ComparableShot:
 
-    def __init__(self, shot : Shot, heuristic : float):
+    def __init__(self, shot : Shot, heuristic : float, board : PoolBoard):
         self.shot = shot
         self.heuristic = heuristic
+        self.board = board
 
     def __gt__(self, other):
         return self.heuristic < other.heuristic
@@ -63,38 +70,46 @@ class SimpleAI(PoolAI):
         # measured in seconds
         self.max_simulation_time = 8
 
+    def name(self) -> str:
+        return "simple"
+
     def shot_handler(self, board: PoolBoard) -> Shot:
+        shots = self.compute_best_shots(board)
+        for shot in shots:
+            print(f"Heuristic: {shot.heuristic}, Shot: {shot.shot}")
+        return shots[0].shot
+
+    # returns the 10 best shots sorted from best to worst
+    def compute_best_shots(self, board : PoolBoard, magnitudes=[75.0, 100.0, 125.0], angles=range(0, 360), length=10) -> List[ComparableShot]:
         position = None
         if board.cue_ball.pocketed:
-            x = -1.0
-            y = -1.0
             while True:
                 x = random_float(Constants.BALL_RADIUS + 0.5, Constants.TABLE_WIDTH - Constants.BALL_RADIUS - 0.5)
                 y = random_float(Constants.BALL_RADIUS + 0.5, Constants.TABLE_HEIGHT - Constants.BALL_RADIUS - 0.5)
-                if Shot.test_cue_ball_position(b2Vec2(x, y), board.balls):
+                position = b2Vec2(x, y)
+                if Shot.test_cue_ball_position(position, board.balls):
                     break
-            position = b2Vec2(x, y)
         queue : List[ComparableShot] = []
-        magnitudes = [75, 100, 125]
-        angles = [i for i in range(0, 360)]
         for angle in angles:
             for magnitude in magnitudes:
                 if len(queue) % 50 == 0:
                     print(f"Shots generated: {len(queue)}")
                 shot = Shot(angle, magnitude, position)
-                Pool.WORLD.load_board(board)
-                Pool.WORLD.shoot(shot)
-                Pool.WORLD.simulate_until_still(Constants.TIME_STEP, Constants.VEL_ITERS, Constants.POS_ITERS, self.max_simulation_time)
-                heuristic = self.compute_heuristic(Pool.WORLD.get_board_state())
-                if self.player == PoolPlayer.PLAYER2:
-                    heuristic *= -1.0
-                heapq.heappush(queue, ComparableShot(shot, heuristic))
-        best = heapq.heappop(queue)
-        print(f"Heuristic: {best.heuristic}, Shot: {best.shot}")
-        for _ in range(10):
-            shot = heapq.heappop(queue)
-            print(f"Heuristic: {shot.heuristic}, Shot: {shot.shot}")
-        return best.shot
+                heapq.heappush(queue, self.compute_shot_heuristic(shot, board))
+        shots = []
+        for _ in range(length):
+            shots.append(heapq.heappop(queue))
+        return shots
+
+    def compute_shot_heuristic(self, shot : Shot, board : PoolBoard) -> ComparableShot:
+        Pool.WORLD.load_board(board)
+        Pool.WORLD.shoot(shot)
+        Pool.WORLD.simulate_until_still(Constants.TIME_STEP, Constants.VEL_ITERS, Constants.POS_ITERS, self.max_simulation_time)
+        the_board = Pool.WORLD.get_board_state()
+        heuristic = self.compute_heuristic(the_board)
+        if board.turn == PoolPlayer.PLAYER2:
+            heuristic *= -1.0
+        return ComparableShot(shot, heuristic, the_board)
 
     # Computes the heuristic of a given board. This is computed in terms of
     # player 1 where a higher score means a better board for player 1.
@@ -146,3 +161,24 @@ class SimpleAI(PoolAI):
             if dist < closest:
                 closest = dist
         return math.sqrt(closest)
+
+class DepthAI(SimpleAI):
+
+    def name(self) -> str:
+        return "depth"
+
+    def shot_handler(self, board: PoolBoard) -> Shot:
+        shots = self.compute_best_shots(board, length=5)
+        for shot in shots:
+            if shot.board.get_state() == PoolState.ONGOING:
+                theory_shot = self.compute_best_shots(shot.board, [100], range(0, 360, 2), 1)[0]
+                if shot.board.turn != self.player:
+                    theory_shot.heuristic *= -1.0
+                shot.heuristic = theory_shot.heuristic
+        best_shot = shots[0]
+        for shot in shots[1:]:
+            if shot.heuristic > best_shot.heuristic:
+                best_shot = shot
+        for shot in shots:
+            print(f"Heuristic: {shot.heuristic}, Shot: {shot.shot}")
+        return best_shot.shot
