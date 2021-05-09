@@ -133,9 +133,9 @@ class PoolBoard:
             return PoolPlayer.PLAYER1 if random.random() > 0.5 else PoolPlayer.PLAYER2
         elif self.turn_number == 1:
             if self.previous_board.turn == PoolPlayer.PLAYER1:
-                return PoolPlayer.PLAYER1 if self.player1_pocketed > 0 and not self.cue_ball.pocketed else PoolPlayer.PLAYER2
+                return PoolPlayer.PLAYER1 if not self.cue_ball.pocketed else PoolPlayer.PLAYER2
             else:
-                return PoolPlayer.PLAYER2 if self.player2_pocketed > 0 and not self.cue_ball.pocketed else PoolPlayer.PLAYER1
+                return PoolPlayer.PLAYER2 if not self.cue_ball.pocketed else PoolPlayer.PLAYER1
         first_hit = self.previous_board.first_hit
         if self.previous_board.turn == PoolPlayer.PLAYER1:
             if self.cue_ball.pocketed or first_hit is None or first_hit.number > 7 or (first_hit.number == 8 and self.previous_board.player1_pocketed != 7) or self.player1_pocketed <= self.previous_board.player1_pocketed:
@@ -611,7 +611,7 @@ class Pool:
         shot_queue = []
         ai_thinking = False
         simulating = False
-        fast_forward = True
+        fast_forward = False
 
         board = self.generate_normal_board()
         print(f"Turn: {board.turn}")
