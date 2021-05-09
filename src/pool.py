@@ -334,8 +334,6 @@ class PoolWorld(b2ContactListener):
             elif not moving and (ball.linearVelocity.x > 0.001 or ball.linearVelocity.x < -0.001 or ball.linearVelocity.y > 0.001 or ball.linearVelocity.y < -0.001):
                 moving = True
         for ball in to_remove:
-            # if ball.userData.number == Constants.CUE_BALL:
-            #     self.cue_ball = None
             self.pocketed_balls.append(Ball.from_b2_body(ball))
             self.balls.remove(ball)
             self.world.DestroyBody(ball)

@@ -65,11 +65,6 @@ class ComparableShot:
 
 class SimpleAI(PoolAI):
 
-    def __init__(self, player: PoolPlayer):
-        super().__init__(player)
-        # measured in seconds
-        self.max_simulation_time = 8
-
     def name(self) -> str:
         return "simple"
 
@@ -104,7 +99,7 @@ class SimpleAI(PoolAI):
     def compute_shot_heuristic(self, shot : Shot, board : PoolBoard) -> ComparableShot:
         Pool.WORLD.load_board(board)
         Pool.WORLD.shoot(shot)
-        Pool.WORLD.simulate_until_still(Constants.TIME_STEP, Constants.VEL_ITERS, Constants.POS_ITERS, self.max_simulation_time)
+        Pool.WORLD.simulate_until_still(Constants.TIME_STEP, Constants.VEL_ITERS, Constants.POS_ITERS)
         the_board = Pool.WORLD.get_board_state()
         heuristic = self.compute_heuristic(the_board)
         if board.turn == PoolPlayer.PLAYER2:

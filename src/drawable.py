@@ -87,7 +87,7 @@ class Drawable:
             pygame.draw.circle(screen.screen, color, position, r)
             pygame.draw.circle(screen.screen, Drawable.WHITE, position, r * 0.90)
 
-            # draw the stipe using trig to draw straight lines across the circle
+            # draw the stripe using trig to draw straight lines across the circle
             r -= 2.5
             steps = 49
             half = steps // 2
