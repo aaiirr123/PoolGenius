@@ -14,3 +14,6 @@ python3 pool.py
 Logs will get created each run and automatically be placed in the logs directory.
 
 A settings file (settings.json) is created in the src directory. Currently it can be used to customize the screen width.
+
+A game in progress:
+![Pool](images/billiards.png)
