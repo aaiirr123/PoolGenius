@@ -15,5 +15,7 @@ Logs will get created each run and automatically be placed in the logs directory
 
 A settings file (settings.json) is created in the src directory. Currently it can be used to customize the screen width.
 
+**[Video demonstration](https://www.youtube.com/watch?v=JmWC8Z4UUbY)** of the AI and engine.
+
 A game in progress:
 ![Pool](images/billiards.png)
