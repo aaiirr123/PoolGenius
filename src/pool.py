@@ -269,7 +269,7 @@ class PoolWorld(b2ContactListener):
         self.board = board
         for ball in self.balls:
             self.world.DestroyBody(ball)
-        self.balls = []
+        self.balls = deque()
         self.pocketed_balls = []
         if not board.cue_ball.pocketed:
             self.cue_ball = self.create_ball(board.cue_ball)
