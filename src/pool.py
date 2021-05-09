@@ -13,7 +13,7 @@ from pygame.locals import (QUIT, KEYDOWN, K_ESCAPE, RESIZABLE, VIDEORESIZE)
 import pygame.time
 import random
 import threading
-from typing import List, Tuple
+from typing import List, Set, Tuple
 
 import ai
 from constants import Constants
@@ -185,12 +185,12 @@ class PoolType(IntEnum):
 # userData Classes
 class PoolData:
 
-    def __init__(self, type):
+    def __init__(self, type : PoolType):
         self.type = type
 
 class BallData(PoolData):
 
-    def __init__(self, number, pocketed):
+    def __init__(self, number : int, pocketed : bool):
         super().__init__(PoolType.BALL)
         self.number = number
         self.pocketed = pocketed  
@@ -206,6 +206,8 @@ class PoolWorld(b2ContactListener):
         self.pocketed_balls : List[Ball] = []
         self.drawables : List[Drawable] = []
         self.pockets = PoolWorld.create_pockets()
+
+        self.to_remove : Set[b2Body] = set()
 
         self.board : PoolBoard = None
         self.cue_ball : b2Body = None
@@ -244,20 +246,24 @@ class PoolWorld(b2ContactListener):
         self.create_boundary_wall(Point(bottom_middle.x, bottom_middle.y + thickness - 0.1), Point(bottom_right.x, bottom_right.y + thickness), True)
 
     def BeginContact(self, contact:b2Contact):
-        data1 = contact.fixtureA.body.userData
-        data2 = contact.fixtureB.body.userData
+        body1 : b2Body = contact.fixtureA.body
+        body2 : b2Body = contact.fixtureB.body
+        data1 : BallData = body1.userData
+        data2 : BallData = body2.userData
         type1 = data1.type
         type2 = data2.type
         # Pocket the ball if it comes into contact with a pocket
         if type1 == PoolType.BALL and type2 == PoolType.POCKET:
             data1.pocketed = True
+            self.to_remove.add(body1)
         elif type2 == PoolType.BALL and type1 == PoolType.POCKET:
             data2.pocketed = True
+            self.to_remove.add(body2)
         elif self.board.first_hit is None and type1 == PoolType.BALL and type2 == PoolType.BALL:
             if data1.number == Constants.CUE_BALL:
-                self.board.first_hit = Ball.from_b2_body(contact.fixtureB.body)
+                self.board.first_hit = Ball.from_b2_body(body2)
             elif data2.number == Constants.CUE_BALL:
-                self.board.first_hit = Ball.from_b2_body(contact.fixtureA.body)
+                self.board.first_hit = Ball.from_b2_body(body1)
 
     def load_board(self, board : PoolBoard):
         self.board = board
@@ -327,16 +333,15 @@ class PoolWorld(b2ContactListener):
         self.world.Step(time_step, vel_iters, pos_iters)
 
         moving = False
-        to_remove:List[b2Body] = []
         for ball in self.balls:
-            if ball.userData.pocketed:
-                to_remove.append(ball)
-            elif not moving and (ball.linearVelocity.x > 0.001 or ball.linearVelocity.x < -0.001 or ball.linearVelocity.y > 0.001 or ball.linearVelocity.y < -0.001):
+            if ball.linearVelocity.x > 0.001 or ball.linearVelocity.x < -0.001 or ball.linearVelocity.y > 0.001 or ball.linearVelocity.y < -0.001:
                 moving = True
-        for ball in to_remove:
+                break
+        for ball in self.to_remove:
             self.pocketed_balls.append(Ball.from_b2_body(ball))
             self.balls.remove(ball)
             self.world.DestroyBody(ball)
+        self.to_remove.clear()
         return moving
 
     def simulate_until_still(self, time_step, vel_iters, pos_iters, max_seconds=15):
