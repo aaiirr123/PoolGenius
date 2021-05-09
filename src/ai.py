@@ -20,8 +20,9 @@ class PoolAI(ABC):
         t0 = time.time()
         s = self.shot_handler(board)
         t1 = time.time()
-        print(f"time elapsed taking shot: {t1 - t0} s")
-        queue.append(s)
+        t = t1 - t0
+        print(f"time elapsed taking shot: {t} s")
+        queue.append((s, t))
 
     @abstractmethod
     def shot_handler(self, board : PoolBoard) -> Shot:
@@ -84,7 +85,10 @@ class SimpleAI(PoolAI):
                 Pool.WORLD.load_board(board)
                 Pool.WORLD.shoot(shot)
                 Pool.WORLD.simulate_until_still(Constants.TIME_STEP, Constants.VEL_ITERS, Constants.POS_ITERS, self.max_simulation_time)
-                heapq.heappush(queue, ComparableShot(shot, self.compute_heuristic(Pool.WORLD.get_board_state())))
+                heuristic = self.compute_heuristic(Pool.WORLD.get_board_state())
+                if self.player == PoolPlayer.PLAYER2:
+                    heuristic *= -1.0
+                heapq.heappush(queue, ComparableShot(shot, heuristic))
         best = heapq.heappop(queue)
         print(f"Heuristic: {best.heuristic}, Shot: {best.shot}")
         for _ in range(10):
@@ -92,18 +96,14 @@ class SimpleAI(PoolAI):
             print(f"Heuristic: {shot.heuristic}, Shot: {shot.shot}")
         return best.shot
 
+    # Computes the heuristic of a given board. This is computed in terms of
+    # player 1 where a higher score means a better board for player 1.
     def compute_heuristic(self, board: PoolBoard) -> float:
         state = board.get_state()
         if state == PoolState.PLAYER1_WIN:
-            if self.player == PoolPlayer.PLAYER1:
-                return 1000.0
-            else:
-                return -1000.0
+            return 1000.0
         elif state == PoolState.PLAYER2_WIN:
-            if self.player == PoolPlayer.PLAYER1:
-                return -1000.0
-            else:
-                return 1000.0
+            return -1000.0
 
         heuristic = board.player1_pocketed * 5.0
         if board.player1_pocketed == 7:
@@ -134,12 +134,6 @@ class SimpleAI(PoolAI):
                     heuristic += value
                 else:
                     heuristic -= value
-
-        if self.player == PoolPlayer.PLAYER2:
-            heuristic = 0.0 - heuristic
-
-        # if board.cue_ball.pocketed:
-        #     heuristic -= 50
 
         return heuristic
 
