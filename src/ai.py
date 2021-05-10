@@ -177,3 +177,24 @@ class DepthAI(SimpleAI):
         for shot in shots:
             print(f"Heuristic: {shot.heuristic}, Shot: {shot.shot}")
         return best_shot.shot
+
+class NerfedDepthAI(SimpleAI):
+
+    def name(self) -> str:
+        return "nerfed depth"
+
+    def shot_handler(self, board: PoolBoard) -> Shot:
+        shots = self.compute_best_shots(board, magnitudes=[85, 115], angles=range(0, 360, 2), length=5)
+        for shot in shots:
+            if shot.board.get_state() == PoolState.ONGOING:
+                theory_shot = self.compute_best_shots(shot.board, [115], range(0, 360, 2), 1)[0]
+                if shot.board.turn != self.player:
+                    theory_shot.heuristic *= -1.0
+                shot.heuristic = theory_shot.heuristic
+        best_shot = shots[0]
+        for shot in shots[1:]:
+            if shot.heuristic > best_shot.heuristic:
+                best_shot = shot
+        for shot in shots:
+            print(f"Heuristic: {shot.heuristic}, Shot: {shot.shot}")
+        return best_shot.shot

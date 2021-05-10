@@ -607,11 +607,11 @@ class Pool:
 
     def run(self):
         player1 = ai.SimpleAI(PoolPlayer.PLAYER1)
-        player2 = ai.DepthAI(PoolPlayer.PLAYER2)
+        player2 = ai.NerfedDepthAI(PoolPlayer.PLAYER2)
         shot_queue = []
         ai_thinking = False
         simulating = False
-        fast_forward = False
+        fast_forward = True
 
         board = self.generate_normal_board()
         print(f"Turn: {board.turn}")
