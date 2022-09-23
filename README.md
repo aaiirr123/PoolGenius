@@ -35,7 +35,9 @@ Optional - create virtual env:
     env/Scripts/activate
 
 1: pip install requirements.txt
+
 2: cd src
+
 3: python3 pool.py
 
 Can also run:
