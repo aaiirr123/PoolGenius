@@ -3,6 +3,7 @@ import heapq
 import math
 import time
 from typing import List
+from shot_verifier import verifyShotReachable
 
 from Box2D.Box2D import b2Vec2
 
@@ -11,16 +12,16 @@ from constants import Constants
 
 class PoolAI(ABC):
 
-    def __init__(self, player : PoolPlayer):
+    def __init__(self, player : PoolPlayer, magnitudes=[75.0, 100.0, 125.0], angles=range(0, 360)):
         self.player = player
+        self.magnitudes = magnitudes
+        self.angles = angles
 
-    def take_shot(self, board : PoolBoard, queue : List):
-        print(f"In shot handler: player {self.player}")
+    def take_shot(self, board : PoolBoard, queue : List ):
         t0 = time.time()
-        s = self.shot_handler(board)
+        s = self.shot_handler(board, self.magnitudes, self.angles)
         t1 = time.time()
         t = t1 - t0
-        print(f"time elapsed taking shot: {t} s")
         queue.append((s, t))
 
     @abstractmethod
@@ -37,7 +38,6 @@ class RandomAI(PoolAI):
         return "random"
 
     def shot_handler(self, board: PoolBoard) -> Shot:
-        time.sleep(1)
         shot = Shot(random_float(0, 360), random_float(100, 150))
         if board.cue_ball.pocketed:
             x = -1.0
@@ -68,14 +68,12 @@ class SimpleAI(PoolAI):
     def name(self) -> str:
         return "simple"
 
-    def shot_handler(self, board: PoolBoard) -> Shot:
-        shots = self.compute_best_shots(board)
-        for shot in shots:
-            print(f"Heuristic: {shot.heuristic}, Shot: {shot.shot}")
+    def shot_handler(self, board: PoolBoard, magnitudes, angles) -> Shot:
+        shots = self.compute_best_shots(board, magnitudes, angles)
         return shots[0].shot
 
     # returns the 10 best shots sorted from best to worst
-    def compute_best_shots(self, board : PoolBoard, magnitudes=[75.0, 100.0, 125.0], angles=range(0, 360), length=10) -> List[ComparableShot]:
+    def compute_best_shots(self, board : PoolBoard, magnitudes, angles, length=10) -> List[ComparableShot]:
         position = None
         if board.cue_ball.pocketed:
             while True:
@@ -97,11 +95,15 @@ class SimpleAI(PoolAI):
         return shots
 
     def compute_shot_heuristic(self, shot : Shot, board : PoolBoard) -> ComparableShot:
-        Pool.WORLD.load_board(board)
-        Pool.WORLD.shoot(shot)
-        Pool.WORLD.simulate_until_still(Constants.TIME_STEP, Constants.VEL_ITERS, Constants.POS_ITERS)
-        the_board = Pool.WORLD.get_board_state()
-        heuristic = self.compute_heuristic(the_board)
+        if verifyShotReachable(shot): 
+            Pool.WORLD.load_board(board)
+            Pool.WORLD.shoot(shot)
+            Pool.WORLD.simulate_until_still(Constants.TIME_STEP, Constants.VEL_ITERS, Constants.POS_ITERS)
+            the_board = Pool.WORLD.get_board_state()
+            heuristic = self.compute_heuristic(the_board)
+        else:
+            print("shot not reachable")
+            heuristic = 0
         if board.turn == PoolPlayer.PLAYER2:
             heuristic *= -1.0
         return ComparableShot(shot, heuristic, the_board)
@@ -162,11 +164,11 @@ class DepthAI(SimpleAI):
     def name(self) -> str:
         return "depth"
 
-    def shot_handler(self, board: PoolBoard) -> Shot:
+    def shot_handler(self, board: PoolBoard, magnitudes, angles) -> Shot:
         shots = self.compute_best_shots(board, length=5)
         for shot in shots:
             if shot.board.get_state() == PoolState.ONGOING:
-                theory_shot = self.compute_best_shots(shot.board, [100], range(0, 360, 2), 1)[0]
+                theory_shot = self.compute_best_shots(shot.board, magnitudes, angles, 1)[0]
                 if shot.board.turn != self.player:
                     theory_shot.heuristic *= -1.0
                 shot.heuristic = theory_shot.heuristic
@@ -174,8 +176,6 @@ class DepthAI(SimpleAI):
         for shot in shots[1:]:
             if shot.heuristic > best_shot.heuristic:
                 best_shot = shot
-        for shot in shots:
-            print(f"Heuristic: {shot.heuristic}, Shot: {shot.shot}")
         return best_shot.shot
 
 class NerfedDepthAI(SimpleAI):
@@ -183,8 +183,8 @@ class NerfedDepthAI(SimpleAI):
     def name(self) -> str:
         return "nerfed depth"
 
-    def shot_handler(self, board: PoolBoard) -> Shot:
-        shots = self.compute_best_shots(board, magnitudes=[85, 115], angles=range(0, 360, 2), length=5)
+    def shot_handler(self, board: PoolBoard, magnitudes, angles) -> Shot:
+        shots = self.compute_best_shots(board, magnitudes, angles, length=5)
         for shot in shots:
             if shot.board.get_state() == PoolState.ONGOING:
                 theory_shot = self.compute_best_shots(shot.board, [115], range(0, 360, 2), 1)[0]
@@ -195,6 +195,4 @@ class NerfedDepthAI(SimpleAI):
         for shot in shots[1:]:
             if shot.heuristic > best_shot.heuristic:
                 best_shot = shot
-        for shot in shots:
-            print(f"Heuristic: {shot.heuristic}, Shot: {shot.shot}")
         return best_shot.shot

@@ -1,21 +1,45 @@
 # PoolGenius
+This is a version of pool genius which we are creating for our senior design project at UCF
+# New Modes
+You will see that there are some new modes added to allow for simulating specific shots
 
-Requirements: [pygame](https://pypi.org/project/pygame/) and [Box2D](https://pypi.org/project/Box2D/)
+# python3 run_single_test_mode 
+This will run a single shot with graphics based on the input given
+the paramaters which need to be added are: balls, magnitudes, angles, pool, playerTurn.
 
-This repository contains a 2D pool engine designed using the **Box2D** library, graphics and visualization support for said engine using **pygame**, and an AI capable of playing pool using the engine. The engine is designed specifically for eight ball pool, however it would be possible to modify it to support other variations of pool.
+balls = [
+    Ball([2, 2], 1),
+    Ball([3, 3], 8),
+    Ball([6, 3.7], 9),  
+    Ball([2.7, 3.6], 11),      
+]
 
-To run the simulation and see the AI, you can clone the repo and then run src/pool.py
+# 
+magnitudes=[75.0, 100.0, 125.0] 
+angles=range(0, 360, 2)
 
-```bash
-cd src
-python3 pool.py
-```
+pool variable will most likely not be changed
 
-Logs will get created each run and automatically be placed in the logs directory.
+# PLAYER1 is solid's and PLAYER2 is stripe's
+playerTurn = PoolPlayer.PLAYER2
 
-A settings file (settings.json) is created in the src directory. Currently it can be used to customize the screen width.
+# python3 run_single_test_mode 
+This functions in the same way as the previous function
+except that the graphics are disabled and only a value
+for force and angle are returned
 
-**[Video demonstration](https://www.youtube.com/watch?v=JmWC8Z4UUbY)** of the AI and engine.
+# Steps for running
+You need pip and python
 
-A game in progress:
-![Pool](images/billiards.png)
+Optional - create virtual env: 
+    python -m venv env
+    env/Scripts/activate
+
+1: pip install requirements.txt
+2: cd src
+3: python3 pool.py
+
+Can also run:
+python3 run_single_production_mode.py
+python3 run_single_test_mode.py
+

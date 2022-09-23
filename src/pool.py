@@ -1,3 +1,6 @@
+import argparse
+from http.client import CONFLICT
+import numbers
 from Box2D.Box2D import *
 from collections import deque
 from datetime import datetime
@@ -14,7 +17,6 @@ import pygame.time
 import random
 import threading
 from typing import List, Set, Tuple
-
 import ai
 from constants import Constants
 from drawable import Drawable, ScreenInfo
@@ -130,7 +132,7 @@ class PoolBoard:
 
     def _get_turn(self) -> PoolPlayer:
         if self.turn_number == 0:
-            return PoolPlayer.PLAYER1 if random.random() > 0.5 else PoolPlayer.PLAYER2
+            return PoolPlayer.PLAYER1
         elif self.turn_number == 1:
             if self.previous_board.turn == PoolPlayer.PLAYER1:
                 return PoolPlayer.PLAYER1 if not self.cue_ball.pocketed else PoolPlayer.PLAYER2
@@ -396,7 +398,6 @@ class PoolWorld(b2ContactListener):
         return pockets
 
 class PoolGraphics:
-
     def __init__(self, pockets : List[Point], drawables : List[Drawable], pocketed_balls : List[Ball], unpocketed_balls : List[Ball], board : PoolBoard):
         self.pockets = pockets
         self.drawables = drawables
@@ -404,91 +405,30 @@ class PoolGraphics:
         self.unpocketed_balls = unpocketed_balls
         self.board = board
 
-class GameLog:
-
-    def __init__(self, player1, player2):
-        self.player1_time = 0.0
-        self.player2_time = 0.0
-        self.boards : List[PoolBoard] = []
-        self.player1 = player1
-        self.player2 = player2
-
-    def add_player_1_time(self, time):
-        self.player1_time += time
-
-    def add_player_2_time(self, time):
-        self.player2_time += time
-
-    def add_board(self, board : PoolBoard):
-        self.boards.append(board)
-
-    def get_break_shotter(self) -> PoolPlayer:
-        if not self.boards:
-            return None
-        return self.boards[0].turn
-
-    def get_winner(self) -> PoolPlayer:
-        if not self.boards:
-            return None
-        state = self.boards[-1].get_state()
-        if state == PoolState.PLAYER1_WIN:
-            return PoolPlayer.PLAYER1
-        elif state == PoolState.PLAYER2_WIN:
-            return PoolPlayer.PLAYER2
-        else:
-            return None
-
 class Pool:
-
     WORLD = PoolWorld()
+    def __init__(self, slowMotion=False, graphics=True):
+        self.slowMotion = slowMotion
+        self.graphics = graphics
 
-    def __init__(self):
-        pygame.init()
+        if self.graphics:
+            pygame.init()
 
-        s_fname = "settings.json"
-        if not os.path.exists(s_fname):
-            with open(s_fname, "w") as file:
-                json.dump({"width": 1280}, file)
+            s_fname = "settings.json"
+            if not os.path.exists(s_fname):
+                with open(s_fname, "w") as file:
+                    json.dump({"width": 1280}, file)
 
-        with open(s_fname, "r") as file:
-            width = int(json.load(file)["width"])
-            Constants.WIDTH = width
-            Constants.HEIGHT = width // 2
+            with open(s_fname, "r") as file:
+                width = int(json.load(file)["width"])
+                Constants.WIDTH = width
+                Constants.HEIGHT = width // 2
 
-        self.screen = ScreenInfo(pygame.display.set_mode((Constants.WIDTH, (Constants.HEIGHT * 9) // 8)), Constants.WIDTH, Constants.HEIGHT, 0, 0, 0)
-        pygame.display.set_caption("Billiards")
-        self.clock = pygame.time.Clock()
+            self.screen = ScreenInfo(pygame.display.set_mode((Constants.WIDTH, (Constants.HEIGHT * 9) // 8)), Constants.WIDTH, Constants.HEIGHT, 0, 0, 0)
+            pygame.display.set_caption("Billiards")
+            self.clock = pygame.time.Clock()
 
-        self.update_screen()
-
-        self.log_name = datetime.now().strftime("%Y-%m-%d_%H-%M-%S.csv")
-        self.log_folder = Path("../logs/").resolve()
-        with open(self.log_folder / self.log_name, "w") as file:
-            file.write("first turn,player1 time,player2 time,player1 shots,player2 shots,outcome,ai1,ai2\n")
-
-    def log(self, game_log : GameLog):
-        with open(self.log_folder / self.log_name, "a") as file:
-            items = []
-            items.append(game_log.get_break_shotter().name)
-            items.append(f"{game_log.player1_time:.3f}")
-            items.append(f"{game_log.player2_time:.3f}")
-            player1_shots = 0
-            player2_shots = 0
-            for board in game_log.boards[:-1]:
-                if board.turn == PoolPlayer.PLAYER1:
-                    player1_shots += 1
-                else:
-                    player2_shots += 1
-            items.append(str(player1_shots))
-            items.append(str(player2_shots))
-            winner = game_log.get_winner()
-            if winner is not None:
-                items.append(winner.name)
-            else:
-                items.append("n/a")
-            items.append(game_log.player1.name())
-            items.append(game_log.player2.name())
-            file.write(",".join(items) + "\n")
+            self.update_screen()
 
     def update_screen(self):
         # update ppm
@@ -554,7 +494,7 @@ class Pool:
 
         # Flip the screen and try to keep at the target FPS
         pygame.display.flip()
-        self.clock.tick(Constants.TICK_RATE)
+        self.clock.tick(Constants.TICK_RATE if not self.slowMotion else Constants.SLOW_MOTION_TICK_RATE)
 
     def generate_random_board(self) -> PoolBoard:
         balls = []
@@ -562,6 +502,17 @@ class Pool:
             balls.append(Ball([random_float(0.5, Constants.TABLE_WIDTH - 0.5), random_float(0.5, Constants.TABLE_HEIGHT - 0.5)], i))
         
         return PoolBoard(CueBall([2.5, 2.5]), balls)
+    
+    def generateBoardFromList(self, ballsOnTable, cueBall) -> PoolBoard:
+        numbersOnTable = []
+        for ball in ballsOnTable: numbersOnTable.append(ball.number)
+
+        allBalls = ballsOnTable
+        for i in range(1, 16):
+            if i not in numbersOnTable: 
+                allBalls.append(Ball([0,0], i, True))
+            
+        return PoolBoard(cueBall, allBalls)
 
     def generate_normal_board(self) -> PoolBoard:
         mid_x = Constants.TABLE_WIDTH / 4 - Constants.BALL_RADIUS
@@ -605,9 +556,56 @@ class Pool:
         
         return PoolBoard(CueBall([Constants.TABLE_WIDTH * 0.75, mid_y]), balls)
 
-    def run(self):
+    def productionMode(self):
         player1 = ai.SimpleAI(PoolPlayer.PLAYER1)
-        player2 = ai.NerfedDepthAI(PoolPlayer.PLAYER2)
+        player2 = ai.SimpleAI(PoolPlayer.PLAYER2)
+        shot_queue = []
+        ai_thinking = False
+        simulating = False
+        fast_forward = True
+
+        board = self.generate_normal_board()
+        Pool.WORLD.load_board(board)
+
+        still_frames = 0
+        # game loop
+        running = True
+        while running:
+            if not simulating and not ai_thinking and len(shot_queue) == 0:
+                target = player1.take_shot if board.turn == PoolPlayer.PLAYER1 else player2.take_shot
+                threading.Thread(target=target, args=(board, shot_queue)).start()
+                ai_thinking = True
+            elif len(shot_queue) > 0:
+                ai_thinking = False
+                simulating = True
+                shot, time = shot_queue.pop()
+           
+                Pool.WORLD.load_board(board)
+                Pool.WORLD.shoot(shot)
+            
+            if simulating:
+                for _ in range(5 if fast_forward else 1):
+                    if not Pool.WORLD.update_physics(Constants.TIME_STEP, Constants.VEL_ITERS, Constants.POS_ITERS):
+                        still_frames += 1
+                    else:
+                        still_frames = 0
+                graphics = Pool.WORLD.get_graphics()
+                if still_frames > 3:
+                    board = Pool.WORLD.get_board_state()
+                    state = board.get_state()
+                    if state == PoolState.ONGOING:
+                        print(f"Turn: {board.turn.name}")
+                        simulating = False
+                    else:
+                        print(f"Outcome: {state.name}")
+                        board = self.generate_normal_board()
+                        simulating = False
+                    print(board)
+                    Pool.WORLD.load_board(board)
+
+    def testMode(self):
+        player1 = ai.SimpleAI(PoolPlayer.PLAYER1)
+        player2 = ai.SimpleAI(PoolPlayer.PLAYER2)
         shot_queue = []
         ai_thinking = False
         simulating = False
@@ -617,8 +615,6 @@ class Pool:
         print(f"Turn: {board.turn}")
         Pool.WORLD.load_board(board)
         graphics = Pool.WORLD.get_graphics()
-
-        log = GameLog(player1, player2)
 
         still_frames = 0
         # game loop
@@ -643,11 +639,7 @@ class Pool:
                 ai_thinking = False
                 simulating = True
                 shot, time = shot_queue.pop()
-                if board.turn == PoolPlayer.PLAYER1:
-                    log.add_player_1_time(time)
-                else:
-                    log.add_player_2_time(time)
-                log.add_board(board)
+           
                 Pool.WORLD.load_board(board)
                 Pool.WORLD.shoot(shot)
             
@@ -661,16 +653,15 @@ class Pool:
                 if still_frames > 3:
                     board = Pool.WORLD.get_board_state()
                     state = board.get_state()
+
                     if state == PoolState.ONGOING:
                         print(f"Turn: {board.turn.name}")
                         simulating = False
                     else:
                         print(f"Outcome: {state.name}")
-                        log.add_board(board)
-                        self.log(log)
-                        log = GameLog(player1, player2)
                         board = self.generate_normal_board()
                         simulating = False
+
                     print(board)
                     Pool.WORLD.load_board(board)
                     graphics = Pool.WORLD.get_graphics()
@@ -681,5 +672,28 @@ class Pool:
         pygame.quit()
 
 if __name__ == "__main__":
-    pool = Pool()
-    pool.run()
+    
+    # pool = Pool(slowMotion=False, graphics=False)
+    # pool.productionMode()
+
+    balls = [
+        Ball([2, 2], 1),
+        Ball([3, 3], 8),
+        Ball([6, 3.7], 9),  
+        Ball([2.7, 3.6], 11),      
+    ]
+    # Player 1 is stripes and Player 2 is solids
+    playerTurn = PoolPlayer.PLAYER2
+
+    pool = Pool(slowMotion=False, graphics=False)
+    pool.runSingleProductionMode(balls, playerTurn)
+    
+
+    pool = Pool(slowMotion=False, graphics=True)
+    pool.runSingleTestMode(balls, playerTurn)
+    
+    # test mode
+    # pool = Pool(slowMotion=False, graphics=True)
+    # pool.testMode()
+
+
