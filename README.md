@@ -3,7 +3,7 @@ This is a version of pool genius which we are creating for our senior design pro
 # New Modes
 You will see that there are some new modes added to allow for simulating specific shots
 
-# python3 run_single_test_mode 
+# run_single_test_mode 
 This will run a single shot with graphics based on the input given
 the paramaters which need to be added are: balls, magnitudes, angles, pool, playerTurn.
 
@@ -14,16 +14,15 @@ balls = [
     Ball([2.7, 3.6], 11),      
 ]
 
-# 
 magnitudes=[75.0, 100.0, 125.0] 
 angles=range(0, 360, 2)
 
 pool variable will most likely not be changed
-
-# PLAYER1 is solid's and PLAYER2 is stripe's
+ 
+PLAYER1 is solid's and PLAYER2 is stripe's
 playerTurn = PoolPlayer.PLAYER2
 
-# python3 run_single_test_mode 
+# run_single_production_mode 
 This functions in the same way as the previous function
 except that the graphics are disabled and only a value
 for force and angle are returned
