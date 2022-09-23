@@ -34,7 +34,7 @@ Optional - create virtual env:
     python -m venv env
     env/Scripts/activate
 
-1: pip install requirements.txt
+1: pip install -r requirements.txt
 
 2: cd src
 
