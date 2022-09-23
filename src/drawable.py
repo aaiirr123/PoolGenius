@@ -72,7 +72,7 @@ class Drawable:
             pygame.draw.circle(screen.screen, color, position, r * 0.90)
         else:
             pygame.draw.circle(screen.screen, color, position, r)
-
+            
     @staticmethod
     def draw_billiard_ball(circle:b2CircleShape, body:b2Body, color:Tuple[int, int, int], screen:ScreenInfo, outline:bool, outline_color:Tuple[int, int, int]):
         x, y = body.transform * circle.pos * screen.ppm

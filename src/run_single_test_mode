@@ -1,0 +1,107 @@
+import threading
+from constants import Constants
+# Do not change order of import, ai must be imported before pool
+import ai
+from pool import CueBall, Ball, Pool, PoolPlayer, PoolState, Shot
+
+import pygame.display
+import pygame.draw
+import pygame.event
+from pygame.locals import (QUIT, KEYDOWN, K_ESCAPE, RESIZABLE, VIDEORESIZE)
+import pygame.time
+
+def runSingleTestMode(balls, cueBall, magnitudes, angles, pool: Pool, turn: PoolPlayer = None):
+        
+        player1 = ai.SimpleAI(PoolPlayer.PLAYER1, magnitudes, angles)
+        shot_queue = []
+        ai_thinking = False
+        simulating = False
+        fast_forward = True
+        finalShot = Shot(0,0)
+        finalTime = 0
+
+        board = pool.generateBoardFromList(balls, cueBall)
+        if turn is not None: board.turn = turn
+        print("board generated")
+        Pool.WORLD.load_board(board)
+        graphics = Pool.WORLD.get_graphics()
+        shots = 0
+
+        still_frames = 0
+        # game loop
+        running = True
+        while shots < 2:
+            # Check the event queue
+            for event in pygame.event.get():
+                if event.type == QUIT or (event.type == KEYDOWN and event.key == K_ESCAPE):
+                    # The user closed the window or pressed escape
+                    running = False
+                elif event.type == VIDEORESIZE:
+                    pool.screen.screen_height = event.h
+                    pool.screen.screen_width = event.w
+                    pool.update_screen()
+                    pool.screen.screen = pygame.display.set_mode((pool.screen.screen_width, pool.screen.screen_height), RESIZABLE)
+            
+            if not simulating and not ai_thinking and len(shot_queue) == 0:
+                target = player1.take_shot
+                if shots < 1:
+                    threading.Thread(target=target, args=(board, shot_queue)).start()
+                shots += 1
+                ai_thinking = True
+            elif len(shot_queue) > 0:
+                ai_thinking = False
+                simulating = True
+                shot, time = shot_queue.pop()
+                finalShot, finalTime = shot, time
+                
+                Pool.WORLD.load_board(board)
+                Pool.WORLD.shoot(shot)                
+            
+            if simulating:
+                for _ in range(5 if fast_forward else 1):
+                    if not Pool.WORLD.update_physics(Constants.TIME_STEP, Constants.VEL_ITERS, Constants.POS_ITERS):
+                        still_frames += 1
+                    else:
+                        still_frames = 0
+                graphics = Pool.WORLD.get_graphics()
+                if still_frames > 3:
+                    board = Pool.WORLD.get_board_state()
+                    state = board.get_state()
+                    if state == PoolState.ONGOING:
+                        simulating = False
+                    else:
+                        board = pool.generate_normal_board()
+                        simulating = False
+                    Pool.WORLD.load_board(board)
+                    graphics = Pool.WORLD.get_graphics()
+                    
+            pool.update_graphics(graphics)
+        print("Done!")   
+        print(finalShot)
+        print(finalTime)
+
+
+
+if __name__ == "__main__":
+    ##########################################
+    ##This must be updated to pass in values##
+
+    balls = [
+        Ball([2.5,2.5], 0),
+        Ball([2, 2], 1),
+        Ball([3, 3], 8),
+        Ball([6, 3.7], 9),  
+        Ball([2.7, 3.6], 11),      
+    ]
+    cueBall = CueBall([2.5, 2.5])
+
+    # Player 1 is solids and Player 2 is stripes
+    playerTurn = PoolPlayer.PLAYER2
+    ##########################################
+
+    pool = Pool(slowMotion=False, graphics=True)
+    magnitudes=[75.0, 100.0, 125.0]
+    angles=range(0, 360, 2)
+
+    runSingleTestMode(balls, cueBall, magnitudes, angles, pool, playerTurn)
+    
