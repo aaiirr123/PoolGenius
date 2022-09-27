@@ -46,25 +46,7 @@ python3 run_single_test_mode.py
 
 # Notes on angles and X,Y pos
 
-angle is based upon the direction your cue would be relative to the ball
-it also has zero starting on the negative x-axis
-                        270            
-                        |
-                        |
-                        |
-          180-----------|-----------0
-                        |
-                        |
-                        |
-                        90
+angle is based upon the direction your cue ball would be shot in. For our algorithms dealing with the cuestick, we must flip
+this angle measurment by 180 degrees. 
 
 X and Y posistion start at the normal origin point we would expect
-             y
-             |
-             |
-             |
-             |
-             |
-             | 
-           0 -------------------- x
-             0
