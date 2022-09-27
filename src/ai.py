@@ -96,15 +96,12 @@ class SimpleAI(PoolAI):
         return shots
 
     def compute_shot_heuristic(self, shot : Shot, board : PoolBoard) -> ComparableShot:
-        if verifyShotReachable(shot): 
-            Pool.WORLD.load_board(board)
-            Pool.WORLD.shoot(shot)
-            Pool.WORLD.simulate_until_still(Constants.TIME_STEP, Constants.VEL_ITERS, Constants.POS_ITERS)
-            the_board = Pool.WORLD.get_board_state()
-            heuristic = self.compute_heuristic(the_board)
-        else:
-            print("shot not reachable")
-            heuristic = 0
+        Pool.WORLD.load_board(board)
+        Pool.WORLD.shoot(shot)
+        Pool.WORLD.simulate_until_still(Constants.TIME_STEP, Constants.VEL_ITERS, Constants.POS_ITERS)
+        the_board = Pool.WORLD.get_board_state()
+        heuristic = self.compute_heuristic(the_board)
+
         if board.turn == PoolPlayer.PLAYER2:
             heuristic *= -1.0
         return ComparableShot(shot, heuristic, the_board)

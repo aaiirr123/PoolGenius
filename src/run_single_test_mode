@@ -98,7 +98,7 @@ if __name__ == "__main__":
     playerTurn = PoolPlayer.PLAYER2
     ##########################################
 
-    pool = Pool(slowMotion=False, graphics=True)
+    pool = Pool(slowMotion=True, graphics=True)
     magnitudes=[45, 75, 90]
     angles=range(0, 360, 2)
 
