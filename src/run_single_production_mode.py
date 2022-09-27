@@ -7,7 +7,7 @@ from pool import CueBall, Ball, Pool, PoolPlayer, PoolState, Shot
 # production mode means that there are no graphics
 # single means that only one simulatation will be made
 
-def runSingleProductionMode(balls, cueBall, magnitudes, angles, pool: Pool, turn: PoolPlayer = None):
+def runSingleProductionMode(balls, cueBall, magnitudes, angles, pool: Pool, turn: PoolPlayer):
         
         player1 = ai.SimpleAI(PoolPlayer.PLAYER1, magnitudes, angles)
         shot_queue = []
@@ -17,7 +17,7 @@ def runSingleProductionMode(balls, cueBall, magnitudes, angles, pool: Pool, turn
         finalShot = Shot(0,0)
         finalTime = 0
 
-        board = pool.generateBoardFromList(balls, cueBall)
+        board = pool.generate_board_from_list(balls, cueBall)
         if turn is not None: board.turn = turn
         Pool.WORLD.load_board(board)
         shots = 0
