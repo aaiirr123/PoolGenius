@@ -13,3 +13,4 @@ class Constants:
     WIDTH = 1280
     HEIGHT = WIDTH // 2
     CUE_BALL = 0
+    MAX_REACH = 2.5

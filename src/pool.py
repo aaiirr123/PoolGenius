@@ -503,7 +503,7 @@ class Pool:
         
         return PoolBoard(CueBall([2.5, 2.5]), balls)
     
-    def generateBoardFromList(self, ballsOnTable, cueBall) -> PoolBoard:
+    def generate_board_from_list(self, ballsOnTable, cueBall) -> PoolBoard:
         numbersOnTable = []
         for ball in ballsOnTable: numbersOnTable.append(ball.number)
 
@@ -603,9 +603,9 @@ class Pool:
                     print(board)
                     Pool.WORLD.load_board(board)
 
-    def testMode(self):
-        player1 = ai.SimpleAI(PoolPlayer.PLAYER1)
-        player2 = ai.SimpleAI(PoolPlayer.PLAYER2)
+    def testMode(self, magnitudes, angles):
+        player1 = ai.SimpleAI(PoolPlayer.PLAYER1, magnitudes, angles)
+        player2 = ai.SimpleAI(PoolPlayer.PLAYER2, magnitudes, angles)
         shot_queue = []
         ai_thinking = False
         simulating = False
@@ -673,27 +673,13 @@ class Pool:
 
 if __name__ == "__main__":
     
+    # production mode
     # pool = Pool(slowMotion=False, graphics=False)
     # pool.productionMode()
-
-    balls = [
-        Ball([2, 2], 1),
-        Ball([3, 3], 8),
-        Ball([6, 3.7], 9),  
-        Ball([2.7, 3.6], 11),      
-    ]
-    # Player 1 is stripes and Player 2 is solids
-    playerTurn = PoolPlayer.PLAYER2
-
-    pool = Pool(slowMotion=False, graphics=False)
-    pool.runSingleProductionMode(balls, playerTurn)
-    
-
-    pool = Pool(slowMotion=False, graphics=True)
-    pool.runSingleTestMode(balls, playerTurn)
-    
     # test mode
-    # pool = Pool(slowMotion=False, graphics=True)
-    # pool.testMode()
+    pool = Pool(slowMotion=True, graphics=True)
+    magnitudes=[45, 70, 90]
+    angles=range(0, 360, 2)
+    pool.testMode(magnitudes, angles)
 
 

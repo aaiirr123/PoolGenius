@@ -74,7 +74,7 @@ class SimpleAI(PoolAI):
 
     # returns the 10 best shots sorted from best to worst
     def compute_best_shots(self, board : PoolBoard, magnitudes, angles, length=10) -> List[ComparableShot]:
-        position = None
+        position = board.cue_ball.position
         if board.cue_ball.pocketed:
             while True:
                 x = random_float(Constants.BALL_RADIUS + 0.5, Constants.TABLE_WIDTH - Constants.BALL_RADIUS - 0.5)
@@ -88,7 +88,8 @@ class SimpleAI(PoolAI):
                 if len(queue) % 50 == 0:
                     print(f"Shots generated: {len(queue)}")
                 shot = Shot(angle, magnitude, position)
-                heapq.heappush(queue, self.compute_shot_heuristic(shot, board))
+                if verifyShotReachable(shot):
+                    heapq.heappush(queue, self.compute_shot_heuristic(shot, board))
         shots = []
         for _ in range(length):
             shots.append(heapq.heappop(queue))

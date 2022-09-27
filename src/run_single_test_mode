@@ -20,7 +20,7 @@ def runSingleTestMode(balls, cueBall, magnitudes, angles, pool: Pool, turn: Pool
         finalShot = Shot(0,0)
         finalTime = 0
 
-        board = pool.generateBoardFromList(balls, cueBall)
+        board = pool.generate_board_from_list(balls, cueBall)
         if turn is not None: board.turn = turn
         print("board generated")
         Pool.WORLD.load_board(board)
@@ -87,7 +87,6 @@ if __name__ == "__main__":
     ##This must be updated to pass in values##
 
     balls = [
-        Ball([2.5,2.5], 0),
         Ball([2, 2], 1),
         Ball([3, 3], 8),
         Ball([6, 3.7], 9),  
@@ -100,7 +99,7 @@ if __name__ == "__main__":
     ##########################################
 
     pool = Pool(slowMotion=False, graphics=True)
-    magnitudes=[75.0, 100.0, 125.0]
+    magnitudes=[45, 75, 90]
     angles=range(0, 360, 2)
 
     runSingleTestMode(balls, cueBall, magnitudes, angles, pool, playerTurn)
