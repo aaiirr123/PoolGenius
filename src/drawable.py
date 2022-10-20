@@ -1,9 +1,14 @@
+from asyncio import constants
+from cmath import rect
 from Box2D.Box2D import *
 import math
+from pygame import Rect
+import pygame
 import pygame.display
 import pygame.draw
 from pygame.surface import Surface
 from typing import Callable, Tuple
+from constants import Constants
 
 class ScreenInfo:
     def __init__(self, screen:Surface, screen_width:int, screen_height:int, offset_x:int, offset_y:int, ppm:float):
@@ -41,6 +46,50 @@ class Drawable:
 
     # https://github.com/openai/box2d-py/blob/master/examples/simple/simple_02.py
     # for the draw functions
+    @staticmethod
+    def draw_pool_cue(screen:ScreenInfo, cue_ball_pos, angle):
+
+        # vertices = [(1.0,1.0), (1.5,1.5),(2.0,2.0),(3.0,3.0)]
+        # vertices = [ (x * screen.ppm, y * screen.ppm) for x,y in vertices ]
+        # vertices = [[x + screen.offset_x, screen.screen_height - y - screen.offset_y] for x, y in vertices]
+        
+        # vertices.sort(key=lambda x : (x[0], x[1]))
+        # vertices = [vertices[0], vertices[2], vertices[3], vertices[1]]
+        # rect = Rect(100, 100, 100, 100)
+
+        # center_x, center_y = cue_ball_pos
+        # center_x, center_y = center_x * screen.ppm, center_y * screen.ppm
+        # length = 300
+        # width = 10
+        # x, y = 300 * math.cos(angle) + center_x, 300 * math.sin(angle) + center_y
+    
+        # # cords =  [(0.0, 0.0),(100.0, 0.0), (100.0, 100.0), (0.0, 100.0)]
+        # cords =  [(center_x - width, center_y - width) , (center_x + width, center_y + width), (x + width, y + width), (x - width, y - width)]
+
+        # pygame.draw.polygon(screen.screen, (0,0,0), cords)
+
+        # pygame.draw.line(screen.screen, (0,0,0), (center_x, center_y), (x,y), 10)
+
+        # rect_img = Surface((300,10))
+        # rect_img.set_colorkey((100,0,0))
+        # rect_img.fill((29,40,200))
+        # rect_img = pygame.transform.rotate(rect_img, angle)
+        # rect_pos = rect_img.get_rect()
+        cue_img = pygame.image.load('poolcue.png')
+        cue_img = pygame.transform.scale(cue_img, (Constants.STICK_LENGTH * screen.ppm * 2, Constants.STICK_WIDTH * screen.ppm))
+        angle = angle - 180.0
+        if angle <= -360.0: angle = angle % 360.0
+        angle *= -1
+        radian_angle = math.radians(angle)
+        ball_offset_x, ball_offset_y = math.cos(radian_angle) * Constants.BALL_RADIUS, math.sin(radian_angle) * Constants.BALL_RADIUS
+        cue_img = pygame.transform.rotate(cue_img, angle)
+        center_img = cue_img.get_rect()
+        
+        x, y = cue_ball_pos
+        center_img.center = ((x + ball_offset_x) * screen.ppm, (y - ball_offset_y) * screen.ppm)
+        screen.screen.blit(cue_img, center_img) 
+        # screen.screen.blit(rect_img, rect_pos)
+
     @staticmethod
     def draw_rect(polygon:b2PolygonShape, body:b2Body, color:Tuple[int, int, int], screen:ScreenInfo, outline:bool, outline_color:Tuple[int, int, int]):
         vertices = [(body.transform * v) * screen.ppm for v in polygon.vertices[:4]]

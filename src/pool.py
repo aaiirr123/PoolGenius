@@ -112,6 +112,7 @@ class PoolPlayer(IntEnum):
 class PoolBoard:
 
     def __init__(self, cue_ball:CueBall, balls:List[Ball], previous_board:"PoolBoard" = None):
+        self.shot = -180
         self.cue_ball = cue_ball
         self.balls = balls
         self.previous_board = previous_board
@@ -208,7 +209,7 @@ class PoolWorld(b2ContactListener):
         self.pocketed_balls : List[Ball] = []
         self.drawables : List[Drawable] = []
         self.pockets = PoolWorld.create_pockets()
-
+    
         self.to_remove : Set[b2Body] = set()
 
         self.board : PoolBoard = None
@@ -309,6 +310,14 @@ class PoolWorld(b2ContactListener):
         ball.userData = BallData(b.number, False)
         self.balls.append(ball)
         return ball
+
+    # def create_pool_stick(self):
+    #     self.world.Create
+    #     body:b2Body = self.world.CreateStaticBody(fixtures=fixture)
+ 
+    #     poolStick = Drawable(body, Drawable.BROWN, Drawable.draw_rect, outline_color=(25, 14, 16))
+
+    #     self.drawables.append(poolStick)
 
     def create_boundary_wall(self, pocket1:Point, pocket2:Point, horizontal:bool):
         vertices = []
@@ -463,6 +472,9 @@ class Pool:
         # Draw drawables
         for drawable in graphics.drawables:
             drawable.draw(self.screen)
+        
+        
+        Drawable.draw_pool_cue(self.screen, graphics.board.cue_ball.position, graphics.board.shot)
 
         # Draw the pocketed balls at the bottom of the screen
         for ball in graphics.pocketed_balls:
@@ -566,11 +578,11 @@ class Pool:
 
         board = self.generate_normal_board()
         Pool.WORLD.load_board(board)
-
         still_frames = 0
         # game loop
         running = True
         while running:
+
             if not simulating and not ai_thinking and len(shot_queue) == 0:
                 target = player1.take_shot if board.turn == PoolPlayer.PLAYER1 else player2.take_shot
                 threading.Thread(target=target, args=(board, shot_queue)).start()
@@ -579,7 +591,7 @@ class Pool:
                 ai_thinking = False
                 simulating = True
                 shot, time = shot_queue.pop()
-           
+                
                 Pool.WORLD.load_board(board)
                 Pool.WORLD.shoot(shot)
             
@@ -610,7 +622,7 @@ class Pool:
         ai_thinking = False
         simulating = False
         fast_forward = True
-
+        
         board = self.generate_normal_board()
         print(f"Turn: {board.turn}")
         Pool.WORLD.load_board(board)
@@ -620,6 +632,7 @@ class Pool:
         # game loop
         running = True
         while running:
+            
             # Check the event queue
             for event in pygame.event.get():
                 if event.type == QUIT or (event.type == KEYDOWN and event.key == K_ESCAPE):
@@ -639,7 +652,10 @@ class Pool:
                 ai_thinking = False
                 simulating = True
                 shot, time = shot_queue.pop()
-           
+                Pool.WORLD.board.shot = shot.angle
+                print("shot " + str(shot))
+                self.update_graphics(graphics)
+                pygame.time.delay(4000)
                 Pool.WORLD.load_board(board)
                 Pool.WORLD.shoot(shot)
             
@@ -677,7 +693,7 @@ if __name__ == "__main__":
     # pool = Pool(slowMotion=False, graphics=False)
     # pool.productionMode()
     # test mode
-    pool = Pool(slowMotion=True, graphics=True)
+    pool = Pool(slowMotion=False, graphics=True)
     magnitudes=[45, 70, 90]
     angles=range(0, 360, 2)
     pool.testMode(magnitudes, angles)

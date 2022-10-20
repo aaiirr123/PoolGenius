@@ -88,7 +88,8 @@ class SimpleAI(PoolAI):
                 if len(queue) % 50 == 0:
                     print(f"Shots generated: {len(queue)}")
                 shot = Shot(angle, magnitude, position)
-                if verifyShotReachable(shot):
+                
+                if verifyShotReachable(shot, board.balls):
                     heapq.heappush(queue, self.compute_shot_heuristic(shot, board))
         shots = []
         for _ in range(length):

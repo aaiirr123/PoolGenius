@@ -1,17 +1,13 @@
-from cmath import exp
-from math import acos, atan, cos, degrees, pi, radians, sin, sqrt, tan
+from math import acos, cos, degrees, pi, radians, sin, sqrt, tan
+from typing import List
 from constants import Constants
+from pool import Ball, Shot
 
 # Not currently implemented
-def verifyShotReachable(shot):
+def verifyShotReachable(shot, balls: List[Ball]):
     
     shot.cue_ball_position
     cue_angle = (shot.angle + 180) % 360
-    
-    # extension_x, extension_y = getExtensionPosition(
-    #     shot.cue_ball_position, 
-    #     shot.angle
-    #     )
     
     extension_x, extension_y = getBodyExtension(
         1,
@@ -25,9 +21,10 @@ def verifyShotReachable(shot):
         (extension_y < (Constants.TABLE_HEIGHT) and
         extension_y > 0)
         ):
-        #print("false")
         return False
 
+    if not checkClearPath(shot, balls):
+        return False
     return True
 
 def getExtensionPosition(cue_pos, cue_angle):
@@ -57,8 +54,18 @@ def getBodyExtension(handedness, cue_pos, original_angle, width):
 
     return(round(x,2),round(y,2))
 
-def convertToDegrees(radians):
-    return radians * (180 / pi)
+def checkClearPath(shot: Shot, balls: List[Ball]):
+    # origin = shot.cue_ball_position
+    # angle = shot.angle
+
+    # for ball in balls:
+    #     x,y = ball.position
+    #     top = y + BALL_RADIUS
+    #     bottom = y - BALL_RADIUS
+    #     left = x - BALL_RADIUS
+    #     right = x + BALL_RADIUS
+
+    return True
 
 def testExtension():
     res = getBodyExtension(1, (2.5,2.5),180, 1)
