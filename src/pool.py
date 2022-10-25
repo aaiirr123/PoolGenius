@@ -1,6 +1,7 @@
 import argparse
 from http.client import CONFLICT
 import numbers
+from turtle import distance
 from Box2D.Box2D import *
 from collections import deque
 from datetime import datetime
@@ -112,6 +113,7 @@ class PoolPlayer(IntEnum):
 class PoolBoard:
 
     def __init__(self, cue_ball:CueBall, balls:List[Ball], previous_board:"PoolBoard" = None):
+        self.shot_ready = False
         self.shot = -180
         self.cue_ball = cue_ball
         self.balls = balls
@@ -198,6 +200,25 @@ class BallData(PoolData):
         self.number = number
         self.pocketed = pocketed  
 
+class Complexity():
+    def __init__(self) -> None:
+        self.total_collisions = 0
+        self.collisions_with_table = 0
+        self.collisions_by_ball = [0 for x in range(16)]
+        self.pocketed_ball_collisions = []
+
+    
+    def calc_collisions_before_pocketed(self, poolBoard : PoolBoard):
+        
+        poolBoard.player1_pocketed
+
+        for ball in poolBoard.balls:
+            if ball.pocketed and self.collisions_by_ball[ball.number] > 0:
+                collisions = self.collisions_by_ball[ball.number]
+                self.pocketed_ball_collisions.append(collisions)
+
+
+
 # This can be used to simulate a given shot constructed from a PoolBoard
 class PoolWorld(b2ContactListener):
 
@@ -205,6 +226,8 @@ class PoolWorld(b2ContactListener):
         super().__init__()
         # Using a deque as a linked list improves performance
         # Due to needing multiple remove() calls
+        self.complexity = Complexity()
+        self.cue_ball_collisions = 0
         self.balls : deque[b2Body] = deque()
         self.pocketed_balls : List[Ball] = []
         self.drawables : List[Drawable] = []
@@ -255,7 +278,27 @@ class PoolWorld(b2ContactListener):
         data2 : BallData = body2.userData
         type1 = data1.type
         type2 = data2.type
+        
+        # update complexity system
+        if ( abs(body1.linearVelocity.x > 0) or
+             abs(body1.linearVelocity.y > 0) or
+             abs(body2.linearVelocity.x > 0) or
+             abs(body2.linearVelocity.y > 0)
+        ):
+            self.complexity.total_collisions += 1
+            if type1 == PoolType.BALL:
+                self.complexity.collisions_by_ball[data1.number] += 1
+            if type2 == PoolType.BALL:
+                self.complexity.collisions_by_ball[data2.number] += 1
+
+            if self.board.first_hit is None:
+                if (type1 == PoolType.BALL or type2 == PoolType.BALL and
+                    type1 == PoolType.WALL or type2 == PoolType.WALL
+                ):
+                    self.complexity.collisions_with_table += 1
+
         # Pocket the ball if it comes into contact with a pocket
+        
         if type1 == PoolType.BALL and type2 == PoolType.POCKET:
             data1.pocketed = True
             self.to_remove.add(body1)
@@ -269,6 +312,7 @@ class PoolWorld(b2ContactListener):
                 self.board.first_hit = Ball.from_b2_body(body1)
 
     def load_board(self, board : PoolBoard):
+        self.complexity = Complexity()
         self.board = board
         for ball in self.balls:
             self.world.DestroyBody(ball)
@@ -310,14 +354,6 @@ class PoolWorld(b2ContactListener):
         ball.userData = BallData(b.number, False)
         self.balls.append(ball)
         return ball
-
-    # def create_pool_stick(self):
-    #     self.world.Create
-    #     body:b2Body = self.world.CreateStaticBody(fixtures=fixture)
- 
-    #     poolStick = Drawable(body, Drawable.BROWN, Drawable.draw_rect, outline_color=(25, 14, 16))
-
-    #     self.drawables.append(poolStick)
 
     def create_boundary_wall(self, pocket1:Point, pocket2:Point, horizontal:bool):
         vertices = []
@@ -474,7 +510,7 @@ class Pool:
             drawable.draw(self.screen)
         
         
-        Drawable.draw_pool_cue(self.screen, graphics.board.cue_ball.position, graphics.board.shot)
+        Drawable.draw_pool_cue(self.screen, graphics.board.cue_ball.position, graphics.board.shot, graphics.board.shot_ready)
 
         # Draw the pocketed balls at the bottom of the screen
         for ball in graphics.pocketed_balls:
@@ -574,7 +610,7 @@ class Pool:
         shot_queue = []
         ai_thinking = False
         simulating = False
-        fast_forward = True
+        fast_forward = False
 
         board = self.generate_normal_board()
         Pool.WORLD.load_board(board)
@@ -616,8 +652,8 @@ class Pool:
                     Pool.WORLD.load_board(board)
 
     def testMode(self, magnitudes, angles):
-        player1 = ai.SimpleAI(PoolPlayer.PLAYER1, magnitudes, angles)
-        player2 = ai.SimpleAI(PoolPlayer.PLAYER2, magnitudes, angles)
+        player1 = ai.RealisticAI(PoolPlayer.PLAYER1, magnitudes, angles)
+        player2 = ai.RealisticAI(PoolPlayer.PLAYER2, magnitudes, angles)
         shot_queue = []
         ai_thinking = False
         simulating = False
@@ -653,7 +689,9 @@ class Pool:
                 simulating = True
                 shot, time = shot_queue.pop()
                 Pool.WORLD.board.shot = shot.angle
+                Pool.WORLD.board.shot_ready = True
                 print("shot " + str(shot))
+
                 self.update_graphics(graphics)
                 pygame.time.delay(4000)
                 Pool.WORLD.load_board(board)

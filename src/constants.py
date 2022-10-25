@@ -1,6 +1,7 @@
 class Constants:
     TICK_RATE = 60
     SLOW_MOTION_TICK_RATE = 5
+    PLAYER_WIDTH = 2
     TIME_STEP = 1.0 / TICK_RATE
     STICK_LENGTH = 4
     STICK_WIDTH = 0.15
@@ -14,4 +15,4 @@ class Constants:
     WIDTH = 1280
     HEIGHT = WIDTH // 2
     CUE_BALL = 0
-    MAX_REACH = 2.5
+    MAX_REACH = 3

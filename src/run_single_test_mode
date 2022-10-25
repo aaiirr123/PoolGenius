@@ -92,7 +92,7 @@ if __name__ == "__main__":
         Ball([6, 3.7], 9),  
         Ball([2.7, 3.6], 11),      
     ]
-    cueBall = CueBall([2.5, 2.5])
+    cueBall = CueBall([1, 1])
 
     # Player 1 is solids and Player 2 is stripes
     playerTurn = PoolPlayer.PLAYER2
