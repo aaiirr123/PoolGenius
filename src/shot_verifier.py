@@ -39,8 +39,8 @@ def verifyShotReachable(shot, balls: List[Ball]):
 
     
 
-    if not checkClearPath(shot, balls):
-        return False
+    # if not checkClearPath(shot, balls):
+    #     return False
 
     return True
 

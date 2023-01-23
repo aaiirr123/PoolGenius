@@ -19,7 +19,7 @@ import random
 import threading
 from typing import List, Set, Tuple
 import ai
-from constants import Constants
+from constants import Bias, Constants, Weights
 from drawable import Drawable, ScreenInfo
 
 def random_float(bottom, top):
@@ -161,11 +161,19 @@ class PoolBoard:
                 else:
                     return PoolState.PLAYER1_WIN
             elif self.previous_board.turn == PoolPlayer.PLAYER1:
+                if self.previous_board.first_hit is not None:
+                    if self.previous_board.first_hit.number > 8:
+                        return PoolState.PLAYER2_WIN
+                else:
+                    return PoolState.PLAYER2_WIN
                 if self.previous_board.player1_pocketed == 7:
                     return PoolState.PLAYER1_WIN
                 else:
                     return PoolState.PLAYER2_WIN
             else:
+                if self.previous_board.first_hit is not None:
+                    if self.previous_board.first_hit.number < 8:
+                        return PoolState.PLAYER1_WIN
                 if self.previous_board.player2_pocketed == 7:
                     return PoolState.PLAYER2_WIN
                 else:
@@ -201,23 +209,61 @@ class BallData(PoolData):
         self.pocketed = pocketed  
 
 class Complexity():
-    def __init__(self) -> None:
+    def __init__(self, cue_ball_pos_x = 0, cue_ball_pos_y = 0) -> None:
         self.total_collisions = 0
         self.collisions_with_table = 0
         self.collisions_by_ball = [0 for x in range(16)]
+        self.distance_by_ball = [0 for x in range(16)]
+        self.wall_collisions_by_ball = [0 for x in range(16)]
+        self.prev_pos = [0 for x in range(16)]
         self.pocketed_ball_collisions = []
-
-    
-    def calc_collisions_before_pocketed(self, poolBoard : PoolBoard):
+        self.pocketed_wall_collisions = []
+        self.distance_before_contact = 0
+        self.initial_cue_ball_pos = (cue_ball_pos_x, cue_ball_pos_y)
         
-        poolBoard.player1_pocketed
 
+    def set_ball_pos(self, poolBoard : PoolBoard):
+        for ball in poolBoard.balls:
+            self.prev_pos[ball.number] = (ball.position.x, ball.position.y)
+        self.prev_pos[0] = poolBoard.cue_ball.position
+        
+    def calc_collisions_before_pocketed(self, poolBoard : PoolBoard):
         for ball in poolBoard.balls:
             if ball.pocketed and self.collisions_by_ball[ball.number] > 0:
                 collisions = self.collisions_by_ball[ball.number]
                 self.pocketed_ball_collisions.append(collisions)
+            if ball.pocketed and self.collisions_by_ball[ball.number] > 0:
+                collisions = self.wall_collisions_by_ball[ball.number]
+                self.pocketed_wall_collisions.append(collisions)
+                
+    def calc_total_distances(self, poolBoard : PoolBoard):
+        for ball in poolBoard.balls:
+            x1, y1 = ball.position
+            x2, y2 = self.prev_pos[ball.number]
+            distance = calc_distance(x1, y1, x2, y2)
+            self.distance_by_ball[ball.number] += distance
+        x1, y1 = poolBoard.cue_ball.position
+        x2, y2 = self.prev_pos[0]
+        distance = calc_distance(x1, y1, x2, y2)
+        self.distance_by_ball[0] += distance
+        
+    def compute_complexity_heuristic(self, poolBoard : PoolBoard):
 
-
+        A = -(self.total_collisions * Weights.TOTAL_COLLISIONS) + Bias.TOTAL_COLLISIONS
+        B = -(self.distance_before_contact * Weights.DISTANCE_BEFORE_CONTACT)
+        C = -pow(self.collisions_with_table, 2) * Weights.COLLISIONS_WITH_TABLE
+        self.calc_collisions_before_pocketed(poolBoard)
+        D = -(sum(self.pocketed_ball_collisions) * Weights.POCKETED_BALL_COLLISIONS) + Bias.POCKETED_BALL_COLLISIONS
+        E = -(sum( map(lambda x: x * x, self.pocketed_wall_collisions)) * Weights.POCKETED_WALL_COLLISIONS) + Bias.POCKETED_BALL_COLLISIONS
+        self.calc_total_distances(poolBoard)
+        F = -(sum( map(lambda x: x * x, self.distance_by_ball)) * Weights.DISTANCE_PER_BALL)
+        return (A + B + C + D + E + F)
+   
+def calc_distance(x1, y1, x2, y2):
+        x = x1 - x2
+        y = y1 - y2
+        distance = math.sqrt(pow(x,2) + pow(y,2))
+        return distance
 
 # This can be used to simulate a given shot constructed from a PoolBoard
 class PoolWorld(b2ContactListener):
@@ -280,20 +326,40 @@ class PoolWorld(b2ContactListener):
         type2 = data2.type
         
         # update complexity system
-        if ( abs(body1.linearVelocity.x > 0) or
-             abs(body1.linearVelocity.y > 0) or
-             abs(body2.linearVelocity.x > 0) or
-             abs(body2.linearVelocity.y > 0)
+        if ( abs(body1.linearVelocity.x != 0) or
+             abs(body1.linearVelocity.y != 0) or
+             abs(body2.linearVelocity.x != 0) or
+             abs(body2.linearVelocity.y != 0)
         ):
-            self.complexity.total_collisions += 1
+            if data1.type != PoolType.POCKET and data2.type != PoolType.POCKET:     
+                self.complexity.total_collisions += 1
             if type1 == PoolType.BALL:
                 self.complexity.collisions_by_ball[data1.number] += 1
+                x1, y1 = body1.position
+                x2, y2 = self.complexity.prev_pos[data1.number]
+                self.complexity.prev_pos[data1.number] = (x1, y1)
+                distance = calc_distance(x1, y1, x2, y2)
+                self.complexity.distance_by_ball[data1.number] += distance
+                
             if type2 == PoolType.BALL:
                 self.complexity.collisions_by_ball[data2.number] += 1
-
+                x1, y1 = body2.position
+                x2, y2 = self.complexity.prev_pos[data2.number]
+                self.complexity.prev_pos[data2.number] = (x1, y1)
+                distance = calc_distance(x1, y1, x2, y2)
+                self.complexity.distance_by_ball[data2.number] += distance
+                
+            if ((type1 == PoolType.BALL or type2 == PoolType.BALL) and
+                    (type1 == PoolType.WALL or type2 == PoolType.WALL)
+                ):
+                    if type1 == PoolType.BALL and data1.number != 0:
+                        self.complexity.wall_collisions_by_ball[data1.number] += 1
+                    elif type2 == PoolType.BALL and data2.number != 0:
+                        self.complexity.wall_collisions_by_ball[data2.number] += 1
+                    
             if self.board.first_hit is None:
-                if (type1 == PoolType.BALL or type2 == PoolType.BALL and
-                    type1 == PoolType.WALL or type2 == PoolType.WALL
+                if ((type1 == PoolType.BALL or type2 == PoolType.BALL) and
+                    (type1 == PoolType.WALL or type2 == PoolType.WALL)
                 ):
                     self.complexity.collisions_with_table += 1
 
@@ -305,14 +371,26 @@ class PoolWorld(b2ContactListener):
         elif type2 == PoolType.BALL and type1 == PoolType.POCKET:
             data2.pocketed = True
             self.to_remove.add(body2)
-        elif self.board.first_hit is None and type1 == PoolType.BALL and type2 == PoolType.BALL:
+        elif self.board.first_hit is None and (type1 == PoolType.BALL and type2 == PoolType.BALL):
             if data1.number == Constants.CUE_BALL:
+                # calculate the distance before the first hit
+                x1, y1 = body1.position
+                x2, y2 = self.complexity.initial_cue_ball_pos[0], self.complexity.initial_cue_ball_pos[1]
+                self.complexity.distance_before_contact = calc_distance(x1, y1, x2, y2)
+                
                 self.board.first_hit = Ball.from_b2_body(body2)
+
             elif data2.number == Constants.CUE_BALL:
+                # calculate the distance before the first hit
+                x1, y1 = body1.position
+                x2, y2 = self.complexity.initial_cue_ball_pos[0], self.complexity.initial_cue_ball_pos[1]
+                self.complexity.distance_before_contact = calc_distance(x1, y1, x2, y2)
+
                 self.board.first_hit = Ball.from_b2_body(body1)
 
     def load_board(self, board : PoolBoard):
-        self.complexity = Complexity()
+        self.complexity = Complexity(board.cue_ball.position.x, board.cue_ball.position.y)
+        self.complexity.set_ball_pos(board)
         self.board = board
         for ball in self.balls:
             self.world.DestroyBody(ball)
@@ -320,7 +398,7 @@ class PoolWorld(b2ContactListener):
         self.pocketed_balls = []
         if not board.cue_ball.pocketed:
             self.cue_ball = self.create_ball(board.cue_ball)
-        else:
+        else: 
             self.cue_ball = None
             self.pocketed_balls.append(board.cue_ball)
 
@@ -344,13 +422,15 @@ class PoolWorld(b2ContactListener):
         # https://github.com/agarwl/eight-ball-pool/blob/master/src/dominos.cpp
         ball_fd = b2FixtureDef(shape=b2CircleShape(radius=Constants.BALL_RADIUS))
         ball_fd.density = 1.0
-        ball_fd.friction = 0.2
-        ball_fd.restitution = 0.8
+        ball_fd.friction = 0
+        ball_fd.restitution = 0.75
+        
+        
     
         ball:b2Body = self.world.CreateDynamicBody(position=b.position, angle=b.angle, fixtures=ball_fd)
         ball.bullet = True
-        ball.linearDamping = 0.6
-        ball.angularDamping = 0.6
+        ball.linearDamping = 0.65
+        ball.angularDamping = .6
         ball.userData = BallData(b.number, False)
         self.balls.append(ball)
         return ball
@@ -371,6 +451,9 @@ class PoolWorld(b2ContactListener):
             vertices.append((pocket1.x + thickness, pocket1.y + diff))
         vertices.append(vertices[0])
         fixture = b2FixtureDef(shape=b2ChainShape(vertices_chain=vertices))
+        fixture.density = 1.0
+        fixture.friction = 0
+        fixture.restitution = 0.8
         body:b2Body = self.world.CreateStaticBody(fixtures=fixture)
         body.userData = PoolData(PoolType.WALL)
         self.drawables.append(Drawable(body, Drawable.BROWN, Drawable.draw_rect, outline_color=(25, 14, 16)))
@@ -698,7 +781,7 @@ class Pool:
                 Pool.WORLD.shoot(shot)
             
             if simulating:
-                for _ in range(5 if fast_forward else 1):
+                for _ in range(3 if fast_forward else 1):
                     if not Pool.WORLD.update_physics(Constants.TIME_STEP, Constants.VEL_ITERS, Constants.POS_ITERS):
                         still_frames += 1
                     else:
@@ -732,8 +815,8 @@ if __name__ == "__main__":
     # pool.productionMode()
     # test mode
     pool = Pool(slowMotion=False, graphics=True)
-    magnitudes=[45, 70, 90]
-    angles=range(0, 360, 2)
+    magnitudes=[20, 45, 70]
+    angles=range(0, 360, 1)
     pool.testMode(magnitudes, angles)
 
 
