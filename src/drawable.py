@@ -1,5 +1,6 @@
 from asyncio import constants
 from cmath import rect
+from distutils import extension
 from Box2D.Box2D import *
 import math
 from pygame import Rect
@@ -9,6 +10,7 @@ import pygame.draw
 from pygame.surface import Surface
 from typing import Callable, Tuple
 from constants import Constants
+import shot_verifier
 
 class ScreenInfo:
     def __init__(self, screen:Surface, screen_width:int, screen_height:int, offset_x:int, offset_y:int, ppm:float):
@@ -47,21 +49,59 @@ class Drawable:
     # https://github.com/openai/box2d-py/blob/master/examples/simple/simple_02.py
     # for the draw functions
     @staticmethod
-    def draw_pool_cue(screen:ScreenInfo, cue_ball_pos, angle):
+    def draw_pool_cue(screen:ScreenInfo, cue_ball_pos, angle, shot_ready):
 
-        cue_img = pygame.image.load('poolcue.png')
-        cue_img = pygame.transform.scale(cue_img, (Constants.STICK_LENGTH * screen.ppm * 2, Constants.STICK_WIDTH * screen.ppm))
-        angle = angle - 180.0
-        if angle <= -360.0: angle = angle % 360.0
-        angle *= -1
-        radian_angle = math.radians(angle)
-        ball_offset_x, ball_offset_y = math.cos(radian_angle) * Constants.BALL_RADIUS, math.sin(radian_angle) * Constants.BALL_RADIUS
-        cue_img = pygame.transform.rotate(cue_img, angle)
-        center_img = cue_img.get_rect()
-        
-        x, y = cue_ball_pos
-        center_img.center = ((x + ball_offset_x) * screen.ppm, (y - ball_offset_y) * screen.ppm)
-        screen.screen.blit(cue_img, center_img) 
+        if shot_ready:
+
+            
+            cue_img = pygame.image.load('poolplayer.png')
+            cue_img = pygame.transform.scale(cue_img, (Constants.STICK_LENGTH * screen.ppm * 2, Constants.PLAYER_WIDTH * screen.ppm))
+            angle = (angle + 180) % 360
+            angle *= -1
+
+            extension_x, extension_y = shot_verifier.getBodyExtension(
+                1,
+                cue_ball_pos,
+                angle
+            )
+
+            cue_x, cue_y = shot_verifier.getExtensionPosition( 
+                cue_ball_pos,
+                angle + 180
+            )
+
+            start_x, start_y = cue_ball_pos
+            pygame.draw.line(screen.screen, (0,0,0), (start_x * screen.ppm, start_y * screen.ppm), (extension_x * screen.ppm, extension_y * screen.ppm), 4)
+
+            pygame.draw.line(screen.screen, (255,255,255), (start_x * screen.ppm, start_y * screen.ppm), (cue_x * screen.ppm, cue_y * screen.ppm), 4)
+
+
+            radian_angle = math.radians(angle)
+            orthaganal_radian_angle = angle - 90
+            if orthaganal_radian_angle <= -360: orthaganal_radian_angle %= 360
+            orthaganal_radian_angle = math.radians(orthaganal_radian_angle)
+
+
+            ball_offset_x, ball_offset_y = math.cos(radian_angle) * Constants.BALL_RADIUS, math.sin(radian_angle) * Constants.BALL_RADIUS
+            # This is just an issue that needs to be adjusted due to the added width of the pool cue
+            pool_stick_mod = 0.85
+            body_offset_x = math.cos(orthaganal_radian_angle) * Constants.PLAYER_WIDTH / 2 * pool_stick_mod 
+            body_offset_y = math.sin(orthaganal_radian_angle) * Constants.PLAYER_WIDTH / 2 * pool_stick_mod
+            offset_x, offset_y = ball_offset_x + body_offset_x , ball_offset_y + body_offset_y
+            offset_x, offset_y = body_offset_x + ball_offset_x, ball_offset_y + body_offset_y
+            cue_img = pygame.transform.rotate(cue_img, angle)
+            center_img = cue_img.get_rect()
+            
+            x, y = cue_ball_pos
+            center_img.center = ((x + offset_x) * screen.ppm, (y - offset_y) * screen.ppm)
+            screen.screen.blit(cue_img, center_img) 
+            cue_x, cue_y = shot_verifier.getExtensionPosition( 
+                cue_ball_pos,
+                angle
+            )
+            pygame.draw.line(screen.screen, (255,255,255), (start_x * screen.ppm, start_y * screen.ppm), (cue_x * screen.ppm, cue_y * screen.ppm), 4)
+
+
 
     @staticmethod
     def draw_rect(polygon:b2PolygonShape, body:b2Body, color:Tuple[int, int, int], screen:ScreenInfo, outline:bool, outline_color:Tuple[int, int, int]):

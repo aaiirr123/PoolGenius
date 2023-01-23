@@ -12,7 +12,7 @@ import pygame.time
 
 def runSingleTestMode(balls, cueBall, magnitudes, angles, pool: Pool, turn: PoolPlayer = None):
         
-        player1 = ai.SimpleAI(PoolPlayer.PLAYER1, magnitudes, angles)
+        player1 = ai.RealisticAI(PoolPlayer.PLAYER1, magnitudes, angles)
         shot_queue = []
         ai_thinking = False
         simulating = False
@@ -21,9 +21,12 @@ def runSingleTestMode(balls, cueBall, magnitudes, angles, pool: Pool, turn: Pool
         finalTime = 0
 
         board = pool.generate_board_from_list(balls, cueBall)
+        board.previous_board = board
         if turn is not None: board.turn = turn
         print("board generated")
         Pool.WORLD.load_board(board)
+        Pool.WORLD.board.turn_number = 2
+        
         graphics = Pool.WORLD.get_graphics()
         shots = 0
 
@@ -53,12 +56,13 @@ def runSingleTestMode(balls, cueBall, magnitudes, angles, pool: Pool, turn: Pool
                 simulating = True
                 shot, time = shot_queue.pop()
                 finalShot, finalTime = shot, time
-                
+                pool.update_graphics(graphics)
+                pygame.time.delay(4000)
                 Pool.WORLD.load_board(board)
                 Pool.WORLD.shoot(shot)                
             
             if simulating:
-                for _ in range(5 if fast_forward else 1):
+                for _ in range(3 if fast_forward else 1):
                     if not Pool.WORLD.update_physics(Constants.TIME_STEP, Constants.VEL_ITERS, Constants.POS_ITERS):
                         still_frames += 1
                     else:
@@ -86,21 +90,59 @@ if __name__ == "__main__":
     ##########################################
     ##This must be updated to pass in values##
 
-    balls = [
-        Ball([2, 2], 1),
+    balls_test_1 = [
         Ball([3, 3], 8),
-        Ball([6, 3.7], 9),  
-        Ball([2.7, 3.6], 11),      
+        Ball([6, 3.7], 3),  
+        Ball([4.0, 2.15], 4)     
     ]
-    cueBall = CueBall([2.5, 2.5])
-
+    cueBall_test_1 = CueBall([1, 1])
+    
+    balls_test_2 = [
+        Ball([3, 3], 8),
+        Ball([6, 4], 3),  
+        Ball([4.4, 2.15], 4)     
+    ]
+    cueBall_test_2 = CueBall([1, 1])
+    
+    balls_test_3 = [
+        Ball([3, 3], 8),
+        Ball([2, 3.3], 3),  
+        Ball([3.8, 1], 4)     
+    ]
+    cueBall_test_3 = CueBall([2, 2])
+    
+    balls_test_4 = [
+        Ball([3, 3], 8),
+        Ball([3.3, 1], 3),  
+        Ball([1.5, 3.8], 4)     
+    ]
+    cueBall_test_4 = CueBall([1, 2.5])
+    
+    balls_test_5 = [
+        Ball([2, 1], 8),
+        Ball([5, 1.3], 3),  
+        Ball([2, 3], 4)     
+    ]
+    cueBall_test_5 = CueBall([1, 2.5])
+    
+    balls_test_6 = [
+        Ball([5.2, 3], 8),
+        Ball([6, 1.8], 3),  
+        Ball([1, 3], 4)     
+    ]
+    cueBall_test_6 = CueBall([1, 2.5])
+    
+    test_cases = [(cueBall_test_6, balls_test_6),
+        (cueBall_test_5, balls_test_5),(cueBall_test_4, balls_test_4), (cueBall_test_1, balls_test_1), 
+        (cueBall_test_2, balls_test_2), (cueBall_test_3, balls_test_3)]
+    
     # Player 1 is solids and Player 2 is stripes
-    playerTurn = PoolPlayer.PLAYER2
+    playerTurn = PoolPlayer.PLAYER1
     ##########################################
 
-    pool = Pool(slowMotion=True, graphics=True)
+    pool = Pool(slowMotion=False, graphics=True)
     magnitudes=[45, 75, 90]
-    angles=range(0, 360, 2)
-
-    runSingleTestMode(balls, cueBall, magnitudes, angles, pool, playerTurn)
+    angles=range(0, 360, 1)
+    for cueBall, balls in test_cases:
+        runSingleTestMode(balls, cueBall, magnitudes, angles, pool, playerTurn)
     
