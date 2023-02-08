@@ -91,7 +91,7 @@ if __name__ == "__main__":
     ##This must be updated to pass in values##
 
     balls_test_1 = [
-        Ball([3, 3], 8),
+        Ball([0, 0], 8),
         Ball([6, 3.7], 3),  
         Ball([4.0, 2.15], 4)     
     ]
@@ -132,8 +132,8 @@ if __name__ == "__main__":
     ]
     cueBall_test_6 = CueBall([1, 2.5])
     
-    test_cases = [(cueBall_test_6, balls_test_6),
-        (cueBall_test_5, balls_test_5),(cueBall_test_4, balls_test_4), (cueBall_test_1, balls_test_1), 
+    test_cases = [(cueBall_test_1, balls_test_1), (cueBall_test_4, balls_test_4), (cueBall_test_6, balls_test_6),
+        (cueBall_test_5, balls_test_5), 
         (cueBall_test_2, balls_test_2), (cueBall_test_3, balls_test_3)]
     
     # Player 1 is solids and Player 2 is stripes

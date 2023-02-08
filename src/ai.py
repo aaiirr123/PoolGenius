@@ -187,7 +187,7 @@ class RealisticAI(PoolAI):
     
     def shot_handler(self, board: PoolBoard, magnitudes, angles) -> Shot:
         if board.turn_number == 0:
-            return Shot(178, 140, board.cue_ball.position)
+            return Shot(180, 50, board.cue_ball.position)
         shots = self.compute_best_shots(board, magnitudes, angles)
         
        
