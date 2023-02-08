@@ -1,3 +1,4 @@
+from ast import Constant
 from asyncio import constants
 from cmath import rect
 from distutils import extension
@@ -53,7 +54,6 @@ class Drawable:
 
         if shot_ready:
 
-            
             cue_img = pygame.image.load('poolplayer.png')
             cue_img = pygame.transform.scale(cue_img, (Constants.STICK_LENGTH * screen.ppm * 2, Constants.PLAYER_WIDTH * screen.ppm))
             angle = (angle + 180) % 360
@@ -74,7 +74,7 @@ class Drawable:
             pygame.draw.line(screen.screen, (0,0,0), (start_x * screen.ppm, start_y * screen.ppm), (extension_x * screen.ppm, extension_y * screen.ppm), 4)
 
             pygame.draw.line(screen.screen, (255,255,255), (start_x * screen.ppm, start_y * screen.ppm), (cue_x * screen.ppm, cue_y * screen.ppm), 4)
-
+            
 
             radian_angle = math.radians(angle)
             orthaganal_radian_angle = angle - 90
@@ -95,14 +95,81 @@ class Drawable:
             x, y = cue_ball_pos
             center_img.center = ((x + offset_x) * screen.ppm, (y - offset_y) * screen.ppm)
             screen.screen.blit(cue_img, center_img) 
+            
+            # This is to verify direction and length of pool stick
             cue_x, cue_y = shot_verifier.getExtensionPosition( 
                 cue_ball_pos,
                 angle
             )
+            # draws line matching pool stick, for geometry check
             pygame.draw.line(screen.screen, (255,255,255), (start_x * screen.ppm, start_y * screen.ppm), (cue_x * screen.ppm, cue_y * screen.ppm), 4)
 
+           
 
+            
+            
+    @staticmethod
+    def draw_player_pos(screen:ScreenInfo, cue_ball_pos, angle, shot_ready, balls):
 
+        if shot_ready:
+            pygame.font.init() # you have to call this at the start, 
+            # if you want to use this module.
+            my_font = pygame.font.SysFont('Comic Sans MS', 18)
+            
+            angle = (angle + 180) % 360
+            angle *= -1
+            body_pos_x, body_pos_y = shot_verifier.getPlayerPosition (
+                cue_ball_pos,
+                angle
+            )
+                
+            shooter_angle = round(shot_verifier.getRelativeAngle(angle=angle, body_pos_x=body_pos_x, body_pos_y=body_pos_y), 3)
+            
+            # angle text
+            angle_text_surface = my_font.render('Relative Angle: ' + str(shooter_angle), False, (255, 255, 255))
+            screen.screen.blit(angle_text_surface, (0.9 * screen.ppm, 3.42 * screen.ppm))
+            
+            # position text
+            wall_number = shot_verifier.getWallNum(body_pos_x=body_pos_x, body_pos_y=body_pos_y)
+            
+            position_text_surface = my_font.render('Wall Number: ' + str(wall_number) + ' Position: x=' + str(round(body_pos_x, 4)) + ', y=' 
+                                                   + str(round(body_pos_y, 4)), False, (255, 255, 255))
+            screen.screen.blit(position_text_surface, (3.75 * screen.ppm, 3.42 * screen.ppm))
+            
+            pygame.draw.circle(screen.screen, (255,0,0), (body_pos_x * screen.ppm, body_pos_y * screen.ppm), 0.05 * screen.ppm)
+            
+            # draw angle line
+            # how far the cue stick peaks over the table edge
+            dif_x = body_pos_x - cue_ball_pos[0] 
+            dif_y = body_pos_y - cue_ball_pos[1]
+            cue_stick_peak = math.sqrt(pow(dif_x, 2) + pow(dif_y, 2))
+            
+            angle_length = cue_stick_peak / math.cos(math.radians(7.5))
+            
+            left_angle = angle + 180 - 7.5
+            right_angle = angle + 180 + 7.5
+            
+            left_unit_vector = (math.cos(math.radians(left_angle)), math.sin(math.radians(left_angle)))
+            right_unit_vector = (math.cos(math.radians(right_angle)), math.sin(math.radians(right_angle)))
+
+            left_end_vector = (left_unit_vector[0] * angle_length, left_unit_vector[1] * angle_length)
+            right_end_vector = (right_unit_vector[0] * angle_length, right_unit_vector[1] * angle_length)
+            
+            left_end_pos = (left_end_vector[0] + body_pos_x, -left_end_vector[1] + body_pos_y)
+            right_end_pos = (right_end_vector[0] + body_pos_x, -right_end_vector[1] + body_pos_y)
+            
+            
+            # Draws the angle lines to the screen
+            pygame.draw.line(screen.screen, (255,255,255),
+                             ( body_pos_x * screen.ppm, body_pos_y * screen.ppm), 
+                             (left_end_pos[0] * screen.ppm, left_end_pos[1] * screen.ppm),
+                             4)
+            pygame.draw.line(screen.screen, (255,255,255),
+                             ( body_pos_x * screen.ppm, body_pos_y * screen.ppm), 
+                             (right_end_pos[0] * screen.ppm, right_end_pos[1] * screen.ppm), 
+                             4)
+            
+        
     @staticmethod
     def draw_rect(polygon:b2PolygonShape, body:b2Body, color:Tuple[int, int, int], screen:ScreenInfo, outline:bool, outline_color:Tuple[int, int, int]):
         vertices = [(body.transform * v) * screen.ppm for v in polygon.vertices[:4]]
